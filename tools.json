@@ -1,0 +1,1712 @@
+[
+ {
+  "name": "get_conditional_outcomes",
+  "description": "Measured HISTORY of forward returns after a stated condition — the base rate from this feed's own data, replacing folklore like \"high funding = squeeze\". Answers: \"What happened historically after funding above the 90th percentile?\", \"When OBI stayed bid-heavy while funding was positive, what did the next 24h look like?\". Condition fields AND together (state at least one). Funding (multi-year series): funding_pct_gte/lte (AS-OF percentile 0..100 — the rank the live endpoint showed at that moment, no look-ahead), streak_h_gte (hours funding kept its sign), funding_sign (positive|negative). Archive (v2, 15-min state archive — YOUNG series, growing daily): archive_feature ∈ obi_skew (−1..+1) | oi_chg_1h_pct (%) | taker_buy_ratio (0..1) | basis_bps, with archive_gte/lte (raw value, no sample floor) and archive_pct_gte/lte (as-of percentile). An archive condition shrinks the match window to the INTERSECTION of the series' spans — the response window and coverage.archive.{window_days,n_samples} disclose exactly how thin the evidence is; weight accordingly. horizons: [\"4h\",\"24h\",\"72h\"] default, each 1h..168h. Per horizon: n_matches (raw), n_effective (overlap-collapsed — overlapping forward windows are NOT independent samples; all stats use the collapsed set), median/p10/p90 forward return in PERCENT, hit_rate_up (RATIO 0..1), max_dd_median_pct (median worst drawdown before the horizon resolves, ≤0). verdict=history_silent means the condition matched too rarely to measure (n_effective<12 on every horizon): a first-class answer — you are trading on belief, size accordingly; stats are null, never noise. warnings flag overlap collapse, 14-day clustering and silenced horizons. matches_sample = up to 50 audit timestamps. Percentile-form conditions exist only once the ranked series has coverage.warmup_samples (12) points — a STRUCTURAL floor (a rank among 2 points is degenerate), not a maturity gate; nothing time-based is withheld. Prices: Binance 1h closes (coverage.price_src). REPORTS HISTORY, NOT PREDICTIONS — past conditional distributions do not imply future returns. Read-only.",
+  "inputSchema": {
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "properties": {
+    "archive_feature": {
+     "description": "v2: condition on ONE archived state feature (15-min archive):\n`obi_skew` (−1..+1), `oi_chg_1h_pct` (%), `taker_buy_ratio` (0..1),\n`basis_bps`. ANDs with the funding fields; the match window becomes\nthe INTERSECTION of the constrained series' spans. Needs at least one\narchive threshold below.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "archive_gte": {
+     "description": "Match hours where the archive feature's RAW value ≥ this (raw\nthresholds have no sample floor — they exist from the first point).",
+     "format": "double",
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "archive_lte": {
+     "description": "Match hours where the archive feature's RAW value ≤ this.",
+     "format": "double",
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "archive_pct_gte": {
+     "description": "Match hours where the feature's AS-OF percentile ≥ this (0..=100; the\nrank exists only once its series has warmup_samples points).",
+     "format": "double",
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "archive_pct_lte": {
+     "description": "Match hours where the feature's as-of percentile ≤ this (0..=100).",
+     "format": "double",
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "funding_pct_gte": {
+     "description": "Match hours where the AS-OF funding percentile was ≥ this (0..=100).\n\"As-of\" = the rank the live endpoint reported at that moment — computed\nonly from data available then, no look-ahead.",
+     "format": "double",
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "funding_pct_lte": {
+     "description": "Match hours where the as-of funding percentile was ≤ this (0..=100).",
+     "format": "double",
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "funding_sign": {
+     "description": "Funding sign filter: `positive` (longs pay shorts) or `negative`.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "horizons": {
+     "description": "Forward horizons as `<hours>h` labels, each 1h..=168h\n(default `[\"4h\",\"24h\",\"72h\"]`).",
+     "items": {
+      "type": "string"
+     },
+     "type": [
+      "array",
+      "null"
+     ]
+    },
+    "streak_h_gte": {
+     "description": "Match hours where funding had kept its sign for at least this many hours.",
+     "format": "int64",
+     "type": [
+      "integer",
+      "null"
+     ]
+    },
+    "symbol": {
+     "description": "Asset symbol: BTC, ETH, SOL, BNB, XRP or DOGE (case-insensitive; a\n`USDT` suffix is accepted).",
+     "type": "string"
+    }
+   },
+   "required": [
+    "symbol"
+   ],
+   "type": "object"
+  },
+  "outputSchema": {
+   "$defs": {
+    "FundingSign": {
+     "description": "Sign filter for the funding condition. `positive` = longs pay shorts.",
+     "enum": [
+      "positive",
+      "negative"
+     ],
+     "type": "string"
+    },
+    "HorizonOutcome": {
+     "description": "Forward-return distribution at one horizon. Stats are `null` when\n`n_effective` is below the measurability floor (12) — that horizon is\nhistory-silent, NOT zero.",
+     "properties": {
+      "hit_rate_up": {
+       "description": "Share of effective matches with a positive forward return, 0..1.",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "max_dd_median_pct": {
+       "description": "Median worst drawdown from entry close within (t, t+h], percent (≤ 0;\ncomputed on hourly lows — the pain endured before the horizon resolves).",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "median_pct": {
+       "description": "Median forward return close(t+h)/close(t) − 1, in percent.",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "n_effective": {
+       "description": "Matches thinned so consecutive kept matches are ≥ one horizon apart —\noverlapping forward windows are NOT independent samples. Stats use these.",
+       "format": "uint64",
+       "minimum": 0,
+       "type": "integer"
+      },
+      "n_matches": {
+       "description": "Raw condition matches on the hourly grid (before overlap collapse).",
+       "format": "uint64",
+       "minimum": 0,
+       "type": "integer"
+      },
+      "p10_pct": {
+       "description": "10th percentile of forward returns, percent (downside tail).",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "p90_pct": {
+       "description": "90th percentile of forward returns, percent (upside tail).",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      }
+     },
+     "required": [
+      "n_matches",
+      "n_effective"
+     ],
+     "type": "object"
+    },
+    "OutcomesArchiveCoverage": {
+     "description": "Provenance of the archive-feature series (v2), when one is constrained.",
+     "properties": {
+      "feature": {
+       "description": "The feature name as requested (e.g. `obi_skew`).",
+       "type": "string"
+      },
+      "n_samples": {
+       "description": "Number of archived samples (15-min cadence).",
+       "format": "uint64",
+       "minimum": 0,
+       "type": "integer"
+      },
+      "src": {
+       "description": "Always `state_history` in v2.",
+       "type": "string"
+      },
+      "window_days": {
+       "description": "Span of the feature's archived series, days (young archives are SHORT —\nweight accordingly; the answer is honest, not deep).",
+       "format": "uint32",
+       "minimum": 0,
+       "type": "integer"
+      }
+     },
+     "required": [
+      "feature",
+      "window_days",
+      "n_samples",
+      "src"
+     ],
+     "type": "object"
+    },
+    "OutcomesCondition": {
+     "description": "The condition being tested, echoed back as parsed. Any subset of fields may\nbe set (they AND together); at least one must be. Percentiles refer to the\nAS-OF percentile: the rank the live endpoint would have reported at that\nmoment, computed only from data ≤ t (no look-ahead).",
+     "properties": {
+      "archive_feature": {
+       "description": "Archive feature to condition on (v2, from the 15-min state archive):\n`obi_skew` (−1..+1), `oi_chg_1h_pct` (%), `taker_buy_ratio` (0..1),\n`basis_bps`. One per request; ANDs with the funding fields. The match\nwindow becomes the INTERSECTION of the constrained series' spans.",
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "archive_gte": {
+       "description": "Match hours where the archive feature's RAW value ≥ this (no sample\nfloor — raw thresholds exist from the first archived point).",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "archive_lte": {
+       "description": "Match hours where the archive feature's RAW value ≤ this.",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "archive_pct_gte": {
+       "description": "Match hours where the feature's AS-OF percentile ≥ this (0..100).\nRank exists only once its series has `warmup_samples` points.",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "archive_pct_lte": {
+       "description": "Match hours where the feature's as-of percentile ≤ this (0..100).",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "funding_pct_gte": {
+       "description": "Match hours where the as-of funding percentile ≥ this (0..100).",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "funding_pct_lte": {
+       "description": "Match hours where the as-of funding percentile ≤ this (0..100).",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "funding_sign": {
+       "anyOf": [
+        {
+         "$ref": "#/$defs/FundingSign"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "Match hours where the cross-venue funding rate has this sign."
+      },
+      "streak_h_gte": {
+       "description": "Match hours where the same-sign funding streak is ≥ this many hours.",
+       "format": "int64",
+       "type": [
+        "integer",
+        "null"
+       ]
+      }
+     },
+     "type": "object"
+    },
+    "OutcomesCoverage": {
+     "description": "What fed the answer — features used, price source, structural floors.",
+     "properties": {
+      "archive": {
+       "anyOf": [
+        {
+         "$ref": "#/$defs/OutcomesArchiveCoverage"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "Provenance of the archive feature, `null` when none was constrained."
+      },
+      "features": {
+       "description": "Condition features the request actually constrained.",
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      "funding": {
+       "$ref": "#/$defs/OutcomesFundingCoverage"
+      },
+      "price_src": {
+       "description": "Price series used for forward returns (single-venue by design — no\nconsolidated/venue stitching inside one backtest series).",
+       "type": "string"
+      },
+      "warmup_samples": {
+       "description": "STRUCTURAL floor: an as-of percentile exists only once its series has\nthis many samples (a rank among 2 points is degenerate, not immature).\nRaw thresholds have no floor. This is mechanics, not a maturity gate.",
+       "format": "uint32",
+       "minimum": 0,
+       "type": "integer"
+      }
+     },
+     "required": [
+      "features",
+      "funding",
+      "price_src",
+      "warmup_samples"
+     ],
+     "type": "object"
+    },
+    "OutcomesFundingCoverage": {
+     "description": "Funding-series provenance for the answer.",
+     "properties": {
+      "n_samples": {
+       "description": "Number of aligned 8h cross-venue samples.",
+       "format": "uint64",
+       "minimum": 0,
+       "type": "integer"
+      },
+      "venues": {
+       "description": "Venues in the consistent-deep cross-venue set the series was built from.",
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      "window_days": {
+       "description": "Aligned-history span in days.",
+       "format": "uint32",
+       "minimum": 0,
+       "type": "integer"
+      }
+     },
+     "required": [
+      "venues",
+      "window_days",
+      "n_samples"
+     ],
+     "type": "object"
+    },
+    "OutcomesVerdict": {
+     "description": "`measurable` = at least one requested horizon has n_effective ≥ 12.\n`history_silent` = the condition matched too rarely to measure — a\nfirst-class answer: you are trading on belief, size accordingly.",
+     "enum": [
+      "measurable",
+      "history_silent"
+     ],
+     "type": "string"
+    },
+    "OutcomesWindow": {
+     "description": "The history window the condition was evaluated over — the span of the\nconstrained series (their INTERSECTION when an archive feature joins the\nfunding series; dates are UTC `YYYY-MM-DD`).",
+     "properties": {
+      "days": {
+       "format": "uint32",
+       "minimum": 0,
+       "type": "integer"
+      },
+      "from": {
+       "type": "string"
+      },
+      "to": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "from",
+      "to",
+      "days"
+     ],
+     "type": "object"
+    }
+   },
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "properties": {
+    "condition": {
+     "$ref": "#/$defs/OutcomesCondition",
+     "description": "The condition as parsed — verify the server understood your hypothesis."
+    },
+    "coverage": {
+     "$ref": "#/$defs/OutcomesCoverage"
+    },
+    "horizons": {
+     "additionalProperties": {
+      "$ref": "#/$defs/HorizonOutcome"
+     },
+     "description": "Keyed by horizon label (`\"4h\"`, `\"24h\"`, `\"72h\"`).",
+     "type": "object"
+    },
+    "matches_sample": {
+     "description": "Up to 50 raw match timestamps, oldest first, RFC3339 UTC — the audit\ntrail: any episode can be checked by hand.",
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    },
+    "symbol": {
+     "description": "Uppercase asset symbol, e.g. `BTC`.",
+     "type": "string"
+    },
+    "verdict": {
+     "$ref": "#/$defs/OutcomesVerdict"
+    },
+    "warnings": {
+     "description": "Honest caveats: overlap collapse counts, clustering, silenced horizons.",
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    },
+    "window": {
+     "$ref": "#/$defs/OutcomesWindow"
+    }
+   },
+   "required": [
+    "symbol",
+    "condition",
+    "window",
+    "horizons",
+    "matches_sample",
+    "warnings",
+    "verdict",
+    "coverage"
+   ],
+   "type": "object"
+  },
+  "annotations": {
+   "title": "Conditional outcomes (measured history)",
+   "readOnlyHint": true,
+   "openWorldHint": false
+  }
+ },
+ {
+  "name": "get_funding_percentile",
+  "description": "Current perpetual funding rate for a symbol, ranked vs its own multi-year history as a percentile (0-100). Answers: \"Is BTC funding unusually high?\", \"What percentile is ETH funding at?\". Returns rate_bps (basis points, 8h-normalized, cross-venue; positive = longs pay shorts), percentile (0-100), streak_h (hours the rate has kept its sign), and the coverage (venues + history depth backing the rank). Read-only.",
+  "inputSchema": {
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "properties": {
+    "symbol": {
+     "description": "Asset symbol: BTC, ETH, SOL, BNB, XRP or DOGE (case-insensitive; a\n`USDT` suffix is accepted, e.g. `BTCUSDT`).",
+     "type": "string"
+    }
+   },
+   "required": [
+    "symbol"
+   ],
+   "type": "object"
+  },
+  "outputSchema": {
+   "$defs": {
+    "CoverageEntry": {
+     "description": "Availability of a single metric group. `partial=false` + no `reason` means full data.",
+     "properties": {
+      "n_samples": {
+       "format": "uint64",
+       "minimum": 0,
+       "type": [
+        "integer",
+        "null"
+       ]
+      },
+      "partial": {
+       "type": "boolean"
+      },
+      "reason": {
+       "anyOf": [
+        {
+         "$ref": "#/$defs/CoverageReason"
+        },
+        {
+         "type": "null"
+        }
+       ]
+      },
+      "venues": {
+       "items": {
+        "type": "string"
+       },
+       "type": [
+        "array",
+        "null"
+       ]
+      },
+      "window_days": {
+       "format": "uint32",
+       "minimum": 0,
+       "type": [
+        "integer",
+        "null"
+       ]
+      }
+     },
+     "required": [
+      "partial"
+     ],
+     "type": "object"
+    },
+    "CoverageReason": {
+     "description": "Why a metric's `coverage` is `partial`. Absent/`null` when the metric is full.",
+     "oneOf": [
+      {
+       "const": "accruing",
+       "description": "Compute exists (or will) but the trailing window is still filling.",
+       "type": "string"
+      },
+      {
+       "const": "unavailable",
+       "description": "Source or compute not deployed yet.",
+       "type": "string"
+      },
+      {
+       "const": "degraded",
+       "description": "A venue in the set is unhealthy this cycle; metric on the reduced set.",
+       "type": "string"
+      },
+      {
+       "const": "stale",
+       "description": "The live source timestamp exceeds the freshness bound.",
+       "type": "string"
+      }
+     ]
+    }
+   },
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "properties": {
+    "as_of": {
+     "description": "Assembly wall-time of the underlying state, RFC3339 UTC.",
+     "type": "string"
+    },
+    "coverage": {
+     "$ref": "#/$defs/CoverageEntry",
+     "description": "Availability of the funding metric (venues, window depth, reason)."
+    },
+    "percentile": {
+     "description": "Rank (0–100) of the current rate in its own trailing distribution.",
+     "format": "uint8",
+     "maximum": 255,
+     "minimum": 0,
+     "type": [
+      "integer",
+      "null"
+     ]
+    },
+    "rate_bps": {
+     "description": "Current cross-venue funding rate, 8h-normalized, in bps.",
+     "format": "double",
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "streak_h": {
+     "description": "Same-sign streak of the rate, in hours.",
+     "format": "int64",
+     "type": [
+      "integer",
+      "null"
+     ]
+    },
+    "symbol": {
+     "description": "Uppercase symbol, e.g. `BTC`.",
+     "type": "string"
+    }
+   },
+   "required": [
+    "symbol",
+    "as_of",
+    "coverage"
+   ],
+   "type": "object"
+  },
+  "annotations": {
+   "title": "Funding percentile",
+   "readOnlyHint": true,
+   "openWorldHint": false
+  }
+ },
+ {
+  "name": "get_liquidations_recent",
+  "description": "Recent cross-exchange liquidation totals for a symbol. Answers: \"How much got liquidated on ETH in the last hour?\", \"Mostly longs or shorts?\". Covers Binance, Bybit, OKX (not Hyperliquid). Returns whole-dollar totals, long_ratio (0..1 share of LONGS liquidated) and event count for the window (window_s, default 3600, max 86400). Read-only.",
+  "inputSchema": {
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "properties": {
+    "symbol": {
+     "description": "Asset symbol: BTC, ETH, SOL, BNB, XRP or DOGE (case-insensitive; a\n`USDT` suffix is accepted).",
+     "type": "string"
+    },
+    "window_s": {
+     "description": "Look-back window in seconds, 1..=86400 (default 3600). Values beyond\n24 h are rejected, not clamped.",
+     "format": "int64",
+     "type": [
+      "integer",
+      "null"
+     ]
+    }
+   },
+   "required": [
+    "symbol"
+   ],
+   "type": "object"
+  },
+  "outputSchema": {
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "properties": {
+    "as_of": {
+     "description": "Upstream read time, RFC3339 UTC.",
+     "type": "string"
+    },
+    "long_ratio": {
+     "description": "Share of LONGS liquidated, RATIO 0..1 (0.71 = 71 % longs). `null` when\nthe window had zero notional.",
+     "format": "double",
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "long_usd": {
+     "description": "Liquidated LONG notional, USD (whole dollars).",
+     "format": "double",
+     "type": "number"
+    },
+    "n_events": {
+     "description": "Number of liquidation events in the window.",
+     "format": "uint64",
+     "minimum": 0,
+     "type": "integer"
+    },
+    "short_usd": {
+     "description": "Liquidated SHORT notional, USD (whole dollars).",
+     "format": "double",
+     "type": "number"
+    },
+    "symbol": {
+     "description": "Uppercase symbol, e.g. `BTC`.",
+     "type": "string"
+    },
+    "usd_total": {
+     "description": "Total liquidated notional in the window, USD (whole dollars).",
+     "format": "double",
+     "type": "number"
+    },
+    "window_s": {
+     "description": "The window actually used, seconds (upstream clamps to at most 86400).",
+     "format": "int64",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "symbol",
+    "window_s",
+    "usd_total",
+    "long_usd",
+    "short_usd",
+    "n_events",
+    "as_of"
+   ],
+   "type": "object"
+  },
+  "annotations": {
+   "title": "Recent liquidations",
+   "readOnlyHint": true,
+   "openWorldHint": false
+  }
+ },
+ {
+  "name": "get_market_state",
+  "description": "Single normalized perpetual-futures microstructure snapshot for one crypto symbol, aggregated across Binance, Bybit, OKX and Hyperliquid. Answers: \"What's the market state for BTC?\", \"Is ETH positioning stretched?\". Covers BTC, ETH, SOL, BNB, XRP, DOGE. Returns funding+2y-percentile, OI, volume, CVD aggression, order-book imbalance, recent liquidation pressure, basis, and key drivers. Scales: *_ratio fields are 0..1, percentiles are 0-100, rel.* are multipliers of the trailing median (1.4 = 140%), obi.skew is -1..+1 (positive = bid-heavy), cvd.delta_usd positive = net taker buying, basis_bps positive = perp above spot index. Every metric carries a coverage entry (venues, window depth, partial reason) — weight confidence by it. Read-only, ~30s fresh. Use first for market context; for the historical base rate of a condition you observe here (e.g. funding percentile ≥ 90), follow with get_conditional_outcomes.",
+  "inputSchema": {
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "properties": {
+    "symbol": {
+     "description": "Asset symbol: BTC, ETH, SOL, BNB, XRP or DOGE (case-insensitive; a\n`USDT` suffix is accepted, e.g. `BTCUSDT`).",
+     "type": "string"
+    }
+   },
+   "required": [
+    "symbol"
+   ],
+   "type": "object"
+  },
+  "outputSchema": {
+   "$defs": {
+    "Calendar": {
+     "description": "Regime-relevant clock: funding settlements + option expiry. These are the\nscheduled events that break microstructure regimes.",
+     "properties": {
+      "funding_next": {
+       "$ref": "#/$defs/FundingNext",
+       "description": "Next funding settlement per venue (Binance live from the venue; others\nrule-based: 8h at 00/08/16 UTC, Hyperliquid hourly)."
+      },
+      "next_option_expiry": {
+       "description": "Next Deribit option expiry (daily 08:00 UTC; monthlies/quarterlies are\nthe last Friday — the large ones), RFC3339 UTC.",
+       "type": [
+        "string",
+        "null"
+       ]
+      }
+     },
+     "required": [
+      "funding_next"
+     ],
+     "type": "object"
+    },
+    "Coverage": {
+     "description": "Per-metric data-availability descriptor (hybrid model: clean values + this block).",
+     "properties": {
+      "basis": {
+       "$ref": "#/$defs/CoverageEntry"
+      },
+      "calendar": {
+       "$ref": "#/$defs/CoverageEntry"
+      },
+      "cvd": {
+       "$ref": "#/$defs/CoverageEntry"
+      },
+      "depth": {
+       "$ref": "#/$defs/CoverageEntry"
+      },
+      "funding": {
+       "$ref": "#/$defs/CoverageEntry"
+      },
+      "liq": {
+       "$ref": "#/$defs/CoverageEntry"
+      },
+      "liq.percentile": {
+       "$ref": "#/$defs/CoverageEntry"
+      },
+      "obi": {
+       "$ref": "#/$defs/CoverageEntry"
+      },
+      "oi": {
+       "$ref": "#/$defs/CoverageEntry"
+      },
+      "oi.rel": {
+       "$ref": "#/$defs/CoverageEntry"
+      },
+      "price": {
+       "$ref": "#/$defs/CoverageEntry"
+      },
+      "venues": {
+       "$ref": "#/$defs/CoverageEntry"
+      },
+      "volume": {
+       "$ref": "#/$defs/CoverageEntry"
+      },
+      "volume.rel": {
+       "$ref": "#/$defs/CoverageEntry"
+      }
+     },
+     "required": [
+      "funding",
+      "oi",
+      "oi.rel",
+      "volume",
+      "volume.rel",
+      "cvd",
+      "obi",
+      "liq",
+      "liq.percentile",
+      "basis",
+      "price",
+      "depth",
+      "venues",
+      "calendar"
+     ],
+     "type": "object"
+    },
+    "CoverageEntry": {
+     "description": "Availability of a single metric group. `partial=false` + no `reason` means full data.",
+     "properties": {
+      "n_samples": {
+       "format": "uint64",
+       "minimum": 0,
+       "type": [
+        "integer",
+        "null"
+       ]
+      },
+      "partial": {
+       "type": "boolean"
+      },
+      "reason": {
+       "anyOf": [
+        {
+         "$ref": "#/$defs/CoverageReason"
+        },
+        {
+         "type": "null"
+        }
+       ]
+      },
+      "venues": {
+       "items": {
+        "type": "string"
+       },
+       "type": [
+        "array",
+        "null"
+       ]
+      },
+      "window_days": {
+       "format": "uint32",
+       "minimum": 0,
+       "type": [
+        "integer",
+        "null"
+       ]
+      }
+     },
+     "required": [
+      "partial"
+     ],
+     "type": "object"
+    },
+    "CoverageReason": {
+     "description": "Why a metric's `coverage` is `partial`. Absent/`null` when the metric is full.",
+     "oneOf": [
+      {
+       "const": "accruing",
+       "description": "Compute exists (or will) but the trailing window is still filling.",
+       "type": "string"
+      },
+      {
+       "const": "unavailable",
+       "description": "Source or compute not deployed yet.",
+       "type": "string"
+      },
+      {
+       "const": "degraded",
+       "description": "A venue in the set is unhealthy this cycle; metric on the reduced set.",
+       "type": "string"
+      },
+      {
+       "const": "stale",
+       "description": "The live source timestamp exceeds the freshness bound.",
+       "type": "string"
+      }
+     ]
+    },
+    "Cvd": {
+     "description": "Cumulative volume delta over a rolling window (`30m` or `2h`).",
+     "properties": {
+      "delta_usd": {
+       "description": "Signed taker notional over the window, USD: POSITIVE = net taker\nBUYING (buy − sell).",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "price_chg_pct": {
+       "description": "Price change over the same window, PERCENT (−0.8 = fell 0.8 %).",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "taker_buy_ratio": {
+       "description": "buy / (buy + sell), RATIO 0..1 (0.5 = balanced flow).",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "window": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "window"
+     ],
+     "type": "object"
+    },
+    "Depth": {
+     "description": "Order-book depth near the touch, from the four venues' own books.",
+     "properties": {
+      "ask_usd": {
+       "$ref": "#/$defs/DepthBands",
+       "description": "Ask-side resting USD by distance band."
+      },
+      "bid_usd": {
+       "$ref": "#/$defs/DepthBands",
+       "description": "Bid-side resting USD by distance band."
+      },
+      "spread_bps": {
+       "description": "TIGHTEST single-venue spread, bps — executable on that venue, never\nnegative. (A consolidated cross-venue \"spread\" can cross and is not\ntradeable; venue dislocation lives in `venues.*.mid_div_bps`.)",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "visibility": {
+       "$ref": "#/$defs/DepthVisibility",
+       "description": "Where each side's visibility ends (both bounds in BPS from mid)."
+      }
+     },
+     "required": [
+      "visibility",
+      "bid_usd",
+      "ask_usd"
+     ],
+     "type": "object"
+    },
+    "DepthBands": {
+     "description": "Resting depth (USD notional) within N bps of the consensus mid, one side —\nsummed across the four venues' books. Bounded by each venue's visible\ntop-200 levels: a band BEYOND this side's `visibility.visible_to_bps` is a\nLOWER BOUND, not a measurement — do not compare bid vs ask at a band\neither side has outgrown (check both sides' `visible_to_bps` first).",
+     "properties": {
+      "10bps": {
+       "description": "Sum within ±10 bps of mid, USD.",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "25bps": {
+       "description": "Sum within ±25 bps of mid, USD.",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "50bps": {
+       "description": "Sum within ±50 bps of mid, USD.",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      }
+     },
+     "type": "object"
+    },
+    "DepthVisibility": {
+     "description": "Per-side visibility of the summed books. Each venue serves its top-200\nlevels; dense books end nearer the mid than sparse ones, so between the\ntwo bounds sums are FLOORS (some venues still contribute, some ended).",
+     "properties": {
+      "ask": {
+       "$ref": "#/$defs/SideVisibility"
+      },
+      "bid": {
+       "$ref": "#/$defs/SideVisibility"
+      }
+     },
+     "required": [
+      "bid",
+      "ask"
+     ],
+     "type": "object"
+    },
+    "Feed": {
+     "description": "Feed self-description — the staleness beacon. MCP clients cache tools/list\n(names/descriptions/schemas) while response DATA flows live, so an agent\nholding an old catalog still sees this block.",
+     "properties": {
+      "tools": {
+       "description": "Number of tools this server currently exposes. If it exceeds the tools\nyour client offers, your connector's cached catalog is STALE — tell the\nuser to reconnect the connector to unlock the newer tools.",
+       "format": "uint32",
+       "minimum": 0,
+       "type": "integer"
+      },
+      "version": {
+       "description": "Published contract/registry version of the server answering you.",
+       "type": "string"
+      }
+     },
+     "required": [
+      "version",
+      "tools"
+     ],
+     "type": "object"
+    },
+    "Funding": {
+     "description": "OI-informed cross-venue funding. `rate_bps` is the 8h-normalized rate ×1e4.",
+     "properties": {
+      "percentile": {
+       "description": "Rank (0-100) of the current rate in its own trailing distribution.",
+       "format": "uint8",
+       "maximum": 255,
+       "minimum": 0,
+       "type": [
+        "integer",
+        "null"
+       ]
+      },
+      "rate_bps": {
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "streak_h": {
+       "description": "Same-sign streak of the headline rate, in hours.",
+       "format": "int64",
+       "type": [
+        "integer",
+        "null"
+       ]
+      }
+     },
+     "type": "object"
+    },
+    "FundingNext": {
+     "description": "Per-venue next funding settlement times, RFC3339 UTC.",
+     "properties": {
+      "binance": {
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "bybit": {
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "hyperliquid": {
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "okx": {
+       "type": [
+        "string",
+        "null"
+       ]
+      }
+     },
+     "type": "object"
+    },
+    "Liq": {
+     "description": "Recent liquidations (Binance/Bybit/OKX; not Hyperliquid).",
+     "properties": {
+      "long_ratio": {
+       "description": "Share of LONGS liquidated, RATIO 0..1 (0.71 = 71 % longs).",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "percentile": {
+       "$ref": "#/$defs/PercentileWindows"
+      },
+      "usd_1h": {
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      }
+     },
+     "required": [
+      "percentile"
+     ],
+     "type": "object"
+    },
+    "Obi": {
+     "description": "Order-book imbalance, flow-weighted cross-venue.",
+     "properties": {
+      "skew": {
+       "description": "(bid − ask) / (bid + ask) ∈ [−1, +1]; POSITIVE = bid-heavy book.",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      }
+     },
+     "type": "object"
+    },
+    "Oi": {
+     "description": "Open interest. `usd` is cross-venue notional; `rel` keys match the\n`coverage.\"oi.rel\"` entry.",
+     "properties": {
+      "chg_1h_pct": {
+       "description": "% change vs 1 h ago on the SAME venue set (venue-consistent).\nSign vs price sign gives the 4-quadrant read: OI↑+price↑ = new longs,\nOI↑+price↓ = new shorts, OI↓ = position closing.",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "rel": {
+       "$ref": "#/$defs/RelWindows"
+      },
+      "usd": {
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      }
+     },
+     "required": [
+      "rel"
+     ],
+     "type": "object"
+    },
+    "PercentileWindows": {
+     "description": "Percentile ranks (0–100) of the current value in its trailing windows;\nkeys match the `coverage.\"liq.percentile\"` entry.",
+     "properties": {
+      "1m": {
+       "description": "Rank in the trailing 1-month distribution, 0–100.",
+       "format": "uint8",
+       "maximum": 255,
+       "minimum": 0,
+       "type": [
+        "integer",
+        "null"
+       ]
+      },
+      "1w": {
+       "description": "Rank in the trailing 1-week distribution, 0–100.",
+       "format": "uint8",
+       "maximum": 255,
+       "minimum": 0,
+       "type": [
+        "integer",
+        "null"
+       ]
+      }
+     },
+     "type": "object"
+    },
+    "Price": {
+     "description": "Consolidated cross-exchange price context (equal-weight venue mids).",
+     "properties": {
+      "atr_1h_pct": {
+       "description": "ATR(14) on 1 h bars BUILT FROM 1-MIN CONSOLIDATED MIDS (intraminute\nwicks excluded — slightly understates true range; use `get_ohlcv` for\nexact candles), as % of `last`.",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "chg_1h_pct": {
+       "description": "% change vs 1 h ago (consolidated 1-min mids; −0.8 = fell 0.8 %).",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "chg_24h_pct": {
+       "description": "% change vs 24 h ago.",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "chg_4h_pct": {
+       "description": "% change vs 4 h ago.",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "last": {
+       "description": "Cross-venue consolidated price, USD.",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "rv_24h_pct": {
+       "description": "Realized volatility: stdev of 5-min log returns over 24 h, ANNUALIZED, %.",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      }
+     },
+     "type": "object"
+    },
+    "RelWindows": {
+     "description": "Rel-to-median multipliers per trailing window (`1.4` = 140 % of the\nwindow's hourly median — a MULTIPLIER, not a percent).",
+     "properties": {
+      "1d": {
+       "description": "Current vs the trailing 1-day hourly median (multiplier, ×).",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "1m": {
+       "description": "Current vs the trailing 1-month hourly median (multiplier, ×).",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "1w": {
+       "description": "Current vs the trailing 1-week hourly median (multiplier, ×).",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      }
+     },
+     "type": "object"
+    },
+    "SideVisibility": {
+     "description": "One side's visibility bounds, bps from the consensus mid.",
+     "properties": {
+      "complete_to_bps": {
+       "description": "Up to here EVERY fresh venue's book contributes → band sums at or\nbelow this are complete totals, bps.",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "visible_to_bps": {
+       "description": "Beyond here NO venue shows anything (the deepest visible level) →\nband sums past this cannot grow: equal bands mean \"ran out of book\",\nnot equal liquidity, bps.",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      }
+     },
+     "type": "object"
+    },
+    "VenueSlice": {
+     "description": "One venue's slice of the cross-exchange picture — divergence across venues\nis itself a signal the aggregates deliberately smooth away.",
+     "properties": {
+      "cvd_30m_usd": {
+       "description": "30-min CVD, USD (positive = net taker buying on this venue).",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "funding_bps": {
+       "description": "Latest funding rate, 8h-normalized, bps (positive = longs pay shorts).",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "mid_div_bps": {
+       "description": "This venue's mid vs the consolidated mid, bps (positive = trades rich).",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "obi": {
+       "description": "Order-book imbalance, −1..+1 (positive = bid-heavy).",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "oi_usd": {
+       "description": "Open interest, USD.",
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      }
+     },
+     "type": "object"
+    },
+    "Venues": {
+     "description": "Per-venue slices (fields null where a venue lacks the metric — e.g. no\nHyperliquid entry in a Binance-only series).",
+     "properties": {
+      "binance": {
+       "$ref": "#/$defs/VenueSlice"
+      },
+      "bybit": {
+       "$ref": "#/$defs/VenueSlice"
+      },
+      "hyperliquid": {
+       "$ref": "#/$defs/VenueSlice"
+      },
+      "okx": {
+       "$ref": "#/$defs/VenueSlice"
+      }
+     },
+     "required": [
+      "binance",
+      "bybit",
+      "okx",
+      "hyperliquid"
+     ],
+     "type": "object"
+    },
+    "Volume": {
+     "description": "24h taker notional + rel-to-median multipliers (`coverage.\"volume.rel\"`).",
+     "properties": {
+      "rel": {
+       "$ref": "#/$defs/RelWindows"
+      },
+      "usd_24h": {
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      }
+     },
+     "required": [
+      "rel"
+     ],
+     "type": "object"
+    }
+   },
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "properties": {
+    "age_seconds": {
+     "description": "Worst-case age (seconds) across the live sources that fed the non-null live fields.",
+     "format": "uint64",
+     "minimum": 0,
+     "type": "integer"
+    },
+    "as_of": {
+     "description": "Assembly wall-time, RFC3339 UTC.",
+     "type": "string"
+    },
+    "basis_bps": {
+     "description": "Perp-vs-spot basis in bps: POSITIVE = perp trades ABOVE the spot\nindex ((mark − index) / index × 1e4).",
+     "format": "double",
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "calendar": {
+     "$ref": "#/$defs/Calendar"
+    },
+    "coverage": {
+     "$ref": "#/$defs/Coverage"
+    },
+    "cvd": {
+     "$ref": "#/$defs/Cvd"
+    },
+    "depth": {
+     "$ref": "#/$defs/Depth"
+    },
+    "drivers": {
+     "description": "Fact-strings for fields that have data; no verdict.",
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    },
+    "feed": {
+     "$ref": "#/$defs/Feed",
+     "description": "Server self-description: compare `feed.tools` with the tools you can\ncall — fewer on your side means a stale connector catalog (reconnect)."
+    },
+    "funding": {
+     "$ref": "#/$defs/Funding"
+    },
+    "liq": {
+     "$ref": "#/$defs/Liq"
+    },
+    "obi": {
+     "$ref": "#/$defs/Obi"
+    },
+    "oi": {
+     "$ref": "#/$defs/Oi"
+    },
+    "price": {
+     "$ref": "#/$defs/Price"
+    },
+    "stale_venues": {
+     "description": "Venues currently degraded / dropped from consensus this cycle.",
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    },
+    "symbol": {
+     "description": "Uppercase asset symbol, e.g. `BTC`.",
+     "type": "string"
+    },
+    "venues": {
+     "$ref": "#/$defs/Venues"
+    },
+    "volume": {
+     "$ref": "#/$defs/Volume"
+    }
+   },
+   "required": [
+    "symbol",
+    "as_of",
+    "age_seconds",
+    "feed",
+    "funding",
+    "oi",
+    "volume",
+    "cvd",
+    "obi",
+    "liq",
+    "price",
+    "depth",
+    "venues",
+    "calendar",
+    "drivers",
+    "coverage",
+    "stale_venues"
+   ],
+   "type": "object"
+  },
+  "annotations": {
+   "title": "Market state (cross-exchange)",
+   "readOnlyHint": true,
+   "openWorldHint": false
+  }
+ },
+ {
+  "name": "get_ohlcv",
+  "description": "Consolidated cross-exchange OHLCV candles for a symbol (all four venues' trades merged onto one timeline). Answers: \"Show me BTC 1h candles\", \"What's the 24h range?\". Use for stop placement, position sizing (ATR), R:R and realized-volatility math — the exact-candle complement to get_market_state's approximate price block. Intervals: 5m, 15m, 1h, 4h, 1d (default 1h); limit 1..=200 candles (default 100), oldest first. The NEWEST candle may be partial:true (bucket still forming) — exclude it from ATR/RV math. Fields: t = bucket open epoch ms, o/h/l/c = USD, v = traded volume in BASE units (BTC, ETH, ...), NOT USD — multiply by price for approximate notional. Read-only.",
+  "inputSchema": {
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "properties": {
+    "interval": {
+     "description": "Candle interval: 5m, 15m, 1h, 4h or 1d (default 1h).",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "limit": {
+     "description": "Number of candles, newest last: 1..=200 (default 100).",
+     "format": "uint32",
+     "minimum": 0,
+     "type": [
+      "integer",
+      "null"
+     ]
+    },
+    "symbol": {
+     "description": "Asset symbol: BTC, ETH, SOL, BNB, XRP or DOGE (case-insensitive; a\n`USDT` suffix is accepted).",
+     "type": "string"
+    }
+   },
+   "required": [
+    "symbol"
+   ],
+   "type": "object"
+  },
+  "outputSchema": {
+   "$defs": {
+    "Candle": {
+     "description": "One OHLCV candle (consolidated cross-exchange trades, all four venues on\none timeline).",
+     "properties": {
+      "c": {
+       "format": "double",
+       "type": "number"
+      },
+      "h": {
+       "format": "double",
+       "type": "number"
+      },
+      "l": {
+       "format": "double",
+       "type": "number"
+      },
+      "o": {
+       "format": "double",
+       "type": "number"
+      },
+      "partial": {
+       "default": false,
+       "description": "`true` when the bucket is STILL FORMING (its close time is in the\nfuture): o/h/l/c/v cover only part of the interval. EXCLUDE partial\ncandles from ATR/RV/average-volume math — a 1-minute-old hourly bar\notherwise crushes the last sample.",
+       "type": "boolean"
+      },
+      "t": {
+       "description": "Bucket open time, epoch ms.",
+       "format": "int64",
+       "type": "integer"
+      },
+      "v": {
+       "description": "Traded volume in the bucket, BASE units (BTC, ETH, …) — NOT USD.",
+       "format": "double",
+       "type": "number"
+      }
+     },
+     "required": [
+      "t",
+      "o",
+      "h",
+      "l",
+      "c",
+      "v"
+     ],
+     "type": "object"
+    }
+   },
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "properties": {
+    "candles": {
+     "description": "Oldest→newest.",
+     "items": {
+      "$ref": "#/$defs/Candle"
+     },
+     "type": "array"
+    },
+    "count": {
+     "description": "Number of candles returned (may be fewer than `limit` at history edges).",
+     "format": "uint",
+     "minimum": 0,
+     "type": "integer"
+    },
+    "interval": {
+     "description": "The interval actually used.",
+     "type": "string"
+    },
+    "symbol": {
+     "description": "Uppercase symbol, e.g. `BTC`.",
+     "type": "string"
+    }
+   },
+   "required": [
+    "symbol",
+    "interval",
+    "count",
+    "candles"
+   ],
+   "type": "object"
+  },
+  "annotations": {
+   "title": "OHLCV candles (cross-exchange)",
+   "readOnlyHint": true,
+   "openWorldHint": false
+  }
+ },
+ {
+  "name": "get_state_history",
+  "description": "Time series of any numeric market-state fields from the 15-minute full-state archive — the derivative/trend view get_market_state cannot give. Answers: \"How did OI build over the last 3 days?\", \"Is funding percentile rising or falling this week?\", \"When did the book skew flip?\". fields = dotted numeric paths of get_market_state (1..=16), e.g. funding.percentile, oi.usd, obi.skew, cvd.delta_usd, basis_bps, price.last, depth.bid_usd.10bps, venues.binance.oi_usd. Returns parallel arrays: t (epoch ms, ascending) + series[field] aligned with t; null = that field was not populated in the archived row (honest hole, common near the archive's start — blocks accrue at their own pace). Downsampling: max_points 1..=1000 (default 200); stride in the response says how many 15-min rows each point skips; the newest row is never sampled away. coverage.archive_from/to are the WHOLE archive's bounds — the archive is YOUNG (born 2026-07-03) and grows a row per 15 min per asset; a thin answer is honest, not broken. from/to accept RFC3339, YYYY-MM-DD or epoch ms. Read-only.",
+  "inputSchema": {
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "properties": {
+    "fields": {
+     "description": "Dotted numeric paths of the market state, 1..=16 per request — e.g.\n`funding.percentile`, `oi.usd`, `obi.skew`, `cvd.delta_usd`,\n`basis_bps`, `price.last`, `depth.bid_usd.10bps`,\n`venues.binance.oi_usd`. Typos get an error naming the offender.",
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    },
+    "from": {
+     "description": "Range start: RFC3339 (`2026-07-03T08:00:00Z`), `YYYY-MM-DD` (UTC\nmidnight), or epoch milliseconds. Default: the whole archive.",
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "max_points": {
+     "description": "Points returned after downsampling, 1..=1000 (default 200). The\nresponse's `stride` says how many archived rows each point skips.",
+     "format": "uint64",
+     "minimum": 0,
+     "type": [
+      "integer",
+      "null"
+     ]
+    },
+    "symbol": {
+     "description": "Asset symbol: BTC, ETH, SOL, BNB, XRP or DOGE (case-insensitive; a\n`USDT` suffix is accepted).",
+     "type": "string"
+    },
+    "to": {
+     "description": "Range end, same formats. Default: the whole archive.",
+     "type": [
+      "string",
+      "null"
+     ]
+    }
+   },
+   "required": [
+    "symbol",
+    "fields"
+   ],
+   "type": "object"
+  },
+  "outputSchema": {
+   "$defs": {
+    "HistoryCoverage": {
+     "description": "Provenance of the archive behind a history answer.",
+     "properties": {
+      "archive_from": {
+       "description": "First archived tick, RFC3339 UTC — `null` only while the archive is\ncompletely empty.",
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "archive_to": {
+       "description": "Last archived tick, RFC3339 UTC.",
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "step_minutes_nominal": {
+       "description": "Writer cadence between rows, minutes (15; holes possible).",
+       "format": "uint32",
+       "minimum": 0,
+       "type": "integer"
+      }
+     },
+     "required": [
+      "step_minutes_nominal"
+     ],
+     "type": "object"
+    }
+   },
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "properties": {
+    "coverage": {
+     "$ref": "#/$defs/HistoryCoverage"
+    },
+    "from": {
+     "description": "First returned point, RFC3339 UTC (empty string when no points).",
+     "type": "string"
+    },
+    "n_available": {
+     "description": "Rows available in the requested range BEFORE downsampling.",
+     "format": "uint64",
+     "minimum": 0,
+     "type": "integer"
+    },
+    "n_points": {
+     "description": "Points returned (= `t.len()`).",
+     "format": "uint64",
+     "minimum": 0,
+     "type": "integer"
+    },
+    "series": {
+     "additionalProperties": {
+      "items": {
+       "format": "double",
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "type": "array"
+     },
+     "description": "Requested dotted field → one value per point (aligned with `t`).",
+     "type": "object"
+    },
+    "stride": {
+     "description": "Downsampling stride actually applied (1 = every archived row).",
+     "format": "uint64",
+     "minimum": 0,
+     "type": "integer"
+    },
+    "symbol": {
+     "description": "Uppercase asset symbol, e.g. `BTC`.",
+     "type": "string"
+    },
+    "t": {
+     "description": "Epoch-ms per returned point, ascending (ms like `get_ohlcv`'s `t`).",
+     "items": {
+      "format": "int64",
+      "type": "integer"
+     },
+     "type": "array"
+    },
+    "to": {
+     "description": "Last returned point, RFC3339 UTC (empty string when no points).",
+     "type": "string"
+    }
+   },
+   "required": [
+    "symbol",
+    "from",
+    "to",
+    "t",
+    "series",
+    "n_points",
+    "n_available",
+    "stride",
+    "coverage"
+   ],
+   "type": "object"
+  },
+  "annotations": {
+   "title": "State history (15-min archive)",
+   "readOnlyHint": true,
+   "openWorldHint": false
+  }
+ }
+]
