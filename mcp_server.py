@@ -24,11 +24,20 @@ import urllib.request
 
 HOSTED = "https://api.markettrace.ai/mcp"
 DOCS = "https://markettrace.ai/agents"
-PROTOCOL_FALLBACK = "2025-06-18"
+# MCP protocol revisions this bridge understands, newest first. On
+# `initialize` we echo the client's version if we support it, else our
+# newest (the spec then lets the client decide) — never blindly mirror.
+SUPPORTED_PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"]
+PROTOCOL_FALLBACK = SUPPORTED_PROTOCOLS[0]
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+# The contract snapshot: {version, generated_at, tools:[...]}. Regenerate
+# from the live server (README §"Refresh the contract"); the version here
+# is what the bridge reports in serverInfo.
 with open(os.path.join(HERE, "tools.json"), encoding="utf-8") as fh:
-    TOOLS = json.load(fh)
+    _contract = json.load(fh)
+TOOLS = _contract["tools"]
+CONTRACT_VERSION = _contract.get("version", "0.0.0")
 
 NO_BEARER_HELP = (
     "This is the open-source front-door bridge; it holds no data. "
@@ -122,15 +131,16 @@ def main():
         if "id" not in req:
             continue  # notification (e.g. notifications/initialized) — no reply
         if method == "initialize":
-            client_proto = (req.get("params") or {}).get("protocolVersion", PROTOCOL_FALLBACK)
+            requested = (req.get("params") or {}).get("protocolVersion")
+            proto = requested if requested in SUPPORTED_PROTOCOLS else PROTOCOL_FALLBACK
             reply(
                 req["id"],
                 result={
-                    "protocolVersion": client_proto,
+                    "protocolVersion": proto,
                     "capabilities": {"tools": {}},
                     "serverInfo": {
                         "name": "markettrace-agent-feed-bridge",
-                        "version": "1.4.1",
+                        "version": CONTRACT_VERSION,
                     },
                     "instructions": (
                         "Front-door bridge for the hosted MarketTrace agent-feed. "

@@ -28,6 +28,8 @@ Hyperliquid**:
 | `get_conditional_outcomes` | Measured forward-return history after a stated condition — base rates instead of folklore. *"What happened historically after funding above the 90th percentile?"* |
 | `get_state_history` | Time series of any numeric state field from the 15-minute archive — the trend view behind the snapshot. |
 
+**Data:** funding rates, open interest, cumulative volume delta (CVD), order-book depth, liquidations, OHLCV candles.
+
 **Honesty model:** every metric carries a `coverage` entry (venues, window
 depth, freshness); thin history answers with disclosed depth instead of
 made-up numbers; conditional outcomes go `history_silent` below the evidence
@@ -60,6 +62,8 @@ the bundled [`tools.json`](tools.json) is a snapshot of the hosted server's
 own contract. Tool **calls** are proxied to the hosted endpoint when
 `MARKETTRACE_BEARER` is set; without it they return a pointer to the hosted
 OAuth endpoint instead of data. It holds no methodology — just a client.
+
+**Refresh the contract:** `tools.json` is a `{version, generated_at, tools}` snapshot of the live server's `tools/list` — regenerate it by capturing that response and stamping the current contract version (mirrors `feed.version` in `get_market_state`).
 
 ```bash
 python3 mcp_server.py            # Python 3.9+, no dependencies

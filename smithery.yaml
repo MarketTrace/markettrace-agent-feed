@@ -1,0 +1,30 @@
+# Smithery configuration: https://smithery.ai/docs/config#smitheryyaml
+#
+# This repo ships the stdio front-door bridge (mcp_server.py). It starts and
+# answers introspection (initialize, tools/list) with NO credentials — the
+# bundled tools.json is a snapshot of the hosted server's contract. Tool
+# calls are proxied to the hosted OAuth endpoint when a bearer is supplied;
+# most users should instead connect a client directly to
+# https://api.markettrace.ai/mcp (OAuth, Streamable HTTP).
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties:
+      markettraceBearer:
+        type: string
+        title: MarketTrace bearer token
+        description: >-
+          Optional. A bearer token to proxy tool calls to the hosted
+          endpoint. Tool discovery (tools/list) works without it; only
+          data-returning calls require it.
+    required: []
+  commandFunction: |-
+    (config) => ({
+      command: 'python',
+      args: ['mcp_server.py'],
+      env: config.markettraceBearer
+        ? { MARKETTRACE_BEARER: config.markettraceBearer }
+        : {}
+    })
+  exampleConfig: {}
