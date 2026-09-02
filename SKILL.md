@@ -7,7 +7,7 @@ interpretation is yours.
 ## Workflow
 
 1. **`get_market_state(symbol)` first.** One call returns the whole
-   cross-exchange picture: funding + multi-year percentile, open interest,
+   cross-exchange picture: funding + trailing 2-year percentile, open interest,
    volume, CVD, order-book imbalance, liquidations, basis, plus fact
    `drivers`. Use it for orientation before anything else.
 2. **Weigh each metric by its `coverage`.** Every field carries a coverage

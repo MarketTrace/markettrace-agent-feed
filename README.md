@@ -16,14 +16,14 @@ normalization) is not open source.
 
 ## What it serves
 
-6 assets (BTC, ETH, SOL, BNB, XRP, DOGE) across **Binance, Bybit, OKX,
+7 assets (BTC, ETH, SOL, BNB, XRP, DOGE, HYPE) across **Binance, Bybit, OKX,
 Hyperliquid**:
 
 | Tool | What it answers |
 |---|---|
-| `get_market_state` | One normalized snapshot: funding + multi-year percentile, OI, volume, CVD, order-book imbalance, liquidations, basis, drivers. *"Is ETH positioning stretched?"* |
-| `get_funding_percentile` | Current funding ranked against its own multi-year history (0–100) + same-sign streak. |
-| `get_liquidations_recent` | Cross-exchange liquidation totals for a window: USD, long/short split. |
+| `get_market_state` | One normalized snapshot: funding + its trailing 2-year percentile, OI, volume, CVD, order-book imbalance, liquidations, basis, drivers. *"Is ETH positioning stretched?"* |
+| `get_funding_percentile` | Current funding ranked against its own trailing 2-year window (0–100) + same-sign streak. |
+| `get_liquidations_recent` | Cross-exchange liquidation notional estimates for a window: USD, long/short split. |
 | `get_ohlcv` | Consolidated cross-exchange candles (5m…1d) for ATR/range/RV math. |
 | `get_conditional_outcomes` | Measured forward-return history after a stated condition — base rates instead of folklore. *"What happened historically after funding above the 90th percentile?"* |
 | `get_state_history` | Time series of any numeric state field from the 15-minute archive — the trend view behind the snapshot. |
