@@ -16,7 +16,7 @@ normalization) is not open source.
 
 ## What it serves
 
-7 assets (BTC, ETH, SOL, BNB, XRP, DOGE, HYPE) across **Binance, Bybit, OKX,
+9 assets (BTC, ETH, SOL, BNB, XRP, DOGE, HYPE, ZEC, ENA) across **Binance, Bybit, OKX,
 Hyperliquid**:
 
 | Tool | What it answers |

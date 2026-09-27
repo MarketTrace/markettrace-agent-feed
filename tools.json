@@ -1,10 +1,10 @@
 {
-  "version": "1.5.0",
-  "generated_at": "2026-09-02T20:00:00Z",
+  "version": "1.6.0",
+  "generated_at": "2026-09-27T07:20:00Z",
   "tools": [
     {
       "name": "get_conditional_outcomes",
-      "description": "Measured HISTORY of forward returns after a stated condition — the base rate from this feed's own data, replacing folklore like \"high funding = squeeze\". Answers: \"What happened historically after funding above the 90th percentile?\", \"When OBI stayed bid-heavy while funding was positive, what did the next 24h look like?\". Condition fields AND together (state at least one). Funding (multi-year series): funding_pct_gte/lte (AS-OF percentile 0..100 — the rank the live endpoint showed at that moment, no look-ahead), streak_h_gte (hours funding kept its sign), funding_sign (positive|negative). Archive (v2, 15-min state archive — YOUNG series, growing daily): archive_feature ∈ obi_skew (−1..+1) | oi_chg_1h_pct (%) | taker_buy_ratio (0..1) | basis_bps, with archive_gte/lte (raw value, no sample floor) and archive_pct_gte/lte (as-of percentile). An archive condition shrinks the match window to the INTERSECTION of the series' spans — the response window and coverage.archive.{window_days,n_samples} disclose exactly how thin the evidence is; weight accordingly. horizons: [\"4h\",\"24h\",\"72h\"] default, each 1h..168h. Per horizon: n_matches (raw), n_effective (overlap-collapsed — overlapping forward windows are NOT independent samples; all stats use the collapsed set), median/p10/p90 forward return in PERCENT, hit_rate_up (RATIO 0..1), max_dd_median_pct (median worst drawdown before the horizon resolves, ≤0). verdict=history_silent means the condition matched too rarely to measure (n_effective<12 on every horizon): a first-class answer — you are trading on belief, size accordingly; stats are null, never noise. warnings flag overlap collapse, 14-day clustering and silenced horizons. matches_sample = up to 50 audit timestamps. Percentile-form conditions exist only once the ranked series has coverage.warmup_samples (12) points — a STRUCTURAL floor (a rank among 2 points is degenerate), not a maturity gate; nothing time-based is withheld. Prices: Binance 1h closes (coverage.price_src). REPORTS HISTORY, NOT PREDICTIONS — past conditional distributions do not imply future returns. Read-only.",
+      "description": "Measured HISTORY of forward returns after a stated condition — the base rate from this feed's own data, replacing folklore like \"high funding = squeeze\". Answers: \"What happened historically after funding above the 90th percentile?\", \"When OBI stayed bid-heavy while funding was positive, what did the next 24h look like?\". Condition fields AND together (state at least one). Funding (multi-year series): funding_pct_gte/lte (AS-OF percentile 0..100 — the rank the live endpoint showed at that moment, no look-ahead), streak_h_gte (hours funding kept its sign), funding_sign (positive|negative). Archive (v2, 15-min state archive — YOUNG series, growing daily): archive_feature ∈ obi_skew (−1..+1) | oi_chg_1h_pct (%) | taker_buy_ratio (0..1) | basis_bps, with archive_gte/lte (raw value, no sample floor) and archive_pct_gte/lte (as-of percentile). An archive condition shrinks the match window to the INTERSECTION of the series' spans — the response window and coverage.archive.{window_days,n_samples} disclose exactly how thin the evidence is; weight accordingly. horizons: [\"4h\",\"24h\",\"72h\"] default, each 1h..168h. Per horizon: n_matches (raw), n_effective (overlap-collapsed — overlapping forward windows are NOT independent samples; all stats use the collapsed set), median/p10/p90 forward return in PERCENT, hit_rate_up (RATIO 0..1), max_dd_median_pct (median worst drawdown before the horizon resolves, ≤0). verdict=history_silent means the condition matched too rarely to measure (n_effective<12 on every horizon): a first-class answer — you are trading on belief, size accordingly; stats are null, never noise. warnings flag overlap collapse, 14-day clustering and silenced horizons. matches_sample = up to 50 audit timestamps. current = where the LAST hour of the same series sits on the condition axes (funding_pct as-of percentile, null below the floor; streak_h; sign) — read the band it falls in, then ask about that band; null only when there is no funding series. Percentile-form conditions exist only once the ranked series has coverage.warmup_samples (12) points — a STRUCTURAL floor (a rank among 2 points is degenerate), not a maturity gate; nothing time-based is withheld. Prices: Binance 1h closes (coverage.price_src). REPORTS HISTORY, NOT PREDICTIONS — past conditional distributions do not imply future returns. Read-only.",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
@@ -89,7 +89,7 @@
             ]
           },
           "symbol": {
-            "description": "Asset symbol: BTC, ETH, SOL, BNB, XRP, DOGE or HYPE (case-insensitive; a\n`USDT` suffix is accepted).",
+            "description": "Asset symbol: BTC, ETH, SOL, BNB, XRP, DOGE, HYPE, ZEC or ENA (case-insensitive; a\n`USDT` suffix is accepted).",
             "type": "string"
           }
         },
@@ -325,6 +325,39 @@
             ],
             "type": "object"
           },
+          "OutcomesCurrent": {
+            "description": "Where the LAST hour of the matched series sits on the condition axes —\nread off the SAME hourly funding series the outcomes were computed on, so\na caller can pick the band \"now\" falls in without re-deriving the ranking\n(and without the look-ahead a client-side rank would smuggle in).",
+            "properties": {
+              "funding_pct": {
+                "description": "As-of funding percentile of the last hour — the `funding_pct_gte/lte`\naxis, same definition. `null` while the series is below\n`coverage.warmup_samples` (the rank does not exist yet, it is not 0).",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "sign": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/FundingSign"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Sign of the cross-venue rate — the `funding_sign` axis. `null` when the\nlast print is exactly zero (neutral matches neither sign condition)."
+              },
+              "streak_h": {
+                "description": "Same-sign funding streak in hours — the `streak_h_gte` axis.",
+                "format": "int64",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "streak_h"
+            ],
+            "type": "object"
+          },
           "OutcomesFundingCoverage": {
             "description": "Funding-series provenance for the answer.",
             "properties": {
@@ -395,6 +428,17 @@
           "coverage": {
             "$ref": "#/$defs/OutcomesCoverage"
           },
+          "current": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/OutcomesCurrent"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The last hour of the matched series on the condition axes; `null` only\nwhen there is no funding series at all."
+          },
           "horizons": {
             "additionalProperties": {
               "$ref": "#/$defs/HorizonOutcome"
@@ -452,7 +496,7 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
           "symbol": {
-            "description": "Asset symbol: BTC, ETH, SOL, BNB, XRP, DOGE or HYPE (case-insensitive; a\n`USDT` suffix is accepted, e.g. `BTCUSDT`).",
+            "description": "Asset symbol: BTC, ETH, SOL, BNB, XRP, DOGE, HYPE, ZEC or ENA (case-insensitive; a\n`USDT` suffix is accepted, e.g. `BTCUSDT`).",
             "type": "string"
           }
         },
@@ -613,7 +657,7 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
           "symbol": {
-            "description": "Asset symbol: BTC, ETH, SOL, BNB, XRP, DOGE or HYPE (case-insensitive; a\n`USDT` suffix is accepted).",
+            "description": "Asset symbol: BTC, ETH, SOL, BNB, XRP, DOGE, HYPE, ZEC or ENA (case-insensitive; a\n`USDT` suffix is accepted).",
             "type": "string"
           },
           "window_s": {
@@ -700,12 +744,12 @@
     },
     {
       "name": "get_market_state",
-      "description": "Single normalized perpetual-futures microstructure snapshot for one crypto symbol, aggregated across Binance, Bybit, OKX and Hyperliquid. Answers: \"What's the market state for BTC?\", \"Is ETH positioning stretched?\". Covers BTC, ETH, SOL, BNB, XRP, DOGE, HYPE. Returns funding+2y-percentile, OI, volume, CVD aggression, order-book imbalance, recent liquidation pressure, basis, and key drivers. Scales: *_ratio fields are 0..1, percentiles are 0-100, rel.* are multipliers of the trailing median (1.4 = 140%), obi.skew is -1..+1 (positive = bid-heavy), cvd.delta_usd positive = net taker buying, basis_bps positive = perp above spot index. Every metric carries a coverage entry (venues, window depth, partial reason) — weight confidence by it. Read-only, ~30s fresh. Use first for market context; for the historical base rate of a condition you observe here (e.g. funding percentile ≥ 90), follow with get_conditional_outcomes.",
+      "description": "Single normalized perpetual-futures microstructure snapshot for one crypto symbol, aggregated across Binance, Bybit, OKX and Hyperliquid. Answers: \"What's the market state for BTC?\", \"Is ETH positioning stretched?\". Covers BTC, ETH, SOL, BNB, XRP, DOGE, HYPE, ZEC, ENA. Returns funding+2y-percentile, OI, volume, CVD aggression, order-book imbalance, recent liquidation pressure, basis, and key drivers. Scales: *_ratio fields are 0..1, percentiles are 0-100, rel.* are multipliers of the trailing median (1.4 = 140%), obi.skew is -1..+1 (positive = bid-heavy), cvd.delta_usd positive = net taker buying, basis_bps positive = perp above spot index. Every metric carries a coverage entry (venues, window depth, partial reason) — weight confidence by it. Read-only, ~30s fresh. Use first for market context; for the historical base rate of a condition you observe here (e.g. funding percentile ≥ 90), follow with get_conditional_outcomes.",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
           "symbol": {
-            "description": "Asset symbol: BTC, ETH, SOL, BNB, XRP, DOGE or HYPE (case-insensitive; a\n`USDT` suffix is accepted, e.g. `BTCUSDT`).",
+            "description": "Asset symbol: BTC, ETH, SOL, BNB, XRP, DOGE, HYPE, ZEC or ENA (case-insensitive; a\n`USDT` suffix is accepted, e.g. `BTCUSDT`).",
             "type": "string"
           }
         },
@@ -1483,7 +1527,7 @@
     },
     {
       "name": "get_ohlcv",
-      "description": "Consolidated cross-exchange OHLCV candles for a symbol (all four venues' trades merged onto one timeline). Answers: \"Show me BTC 1h candles\", \"What's the 24h range?\". Use for stop placement, position sizing (ATR), R:R and realized-volatility math — the exact-candle complement to get_market_state's approximate price block. Intervals: 5m, 15m, 1h, 4h, 1d (default 1h); limit 1..=200 candles (default 100), oldest first. The NEWEST candle may be partial:true (bucket still forming) — exclude it from ATR/RV math. Fields: t = bucket open epoch ms, o/h/l/c = USD, v = traded volume in BASE units (BTC, ETH, ...), NOT USD — multiply by price for approximate notional. Read-only.",
+      "description": "Consolidated cross-exchange OHLCV candles for a symbol (all four venues' trades merged onto one timeline). Answers: \"Show me BTC 1h candles\", \"What's the 24h range?\". Use for stop placement, position sizing (ATR), R:R and realized-volatility math — the exact-candle complement to get_market_state's approximate price block. Intervals: 5m, 15m, 1h, 4h, 1d (default 1h); limit 1..=200 candles (default 100), oldest first. The consolidated tape holds 31 days, so limit × interval must fit inside it: 1d ≤ 31, 4h ≤ 186, 1h and finer reach the full 200 — beyond that is an error, not a clamp. ZEC and ENA keep a 14-day tape that started filling when they were added, so their longer windows return fewer candles than asked — count what comes back. The NEWEST candle may be partial:true (bucket still forming) — exclude it from ATR/RV math. Fields: t = bucket open epoch ms, o/h/l/c = USD, v = traded volume in BASE units (BTC, ETH, ...), NOT USD — multiply by price for approximate notional. Read-only.",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
@@ -1504,7 +1548,7 @@
             ]
           },
           "symbol": {
-            "description": "Asset symbol: BTC, ETH, SOL, BNB, XRP, DOGE or HYPE (case-insensitive; a\n`USDT` suffix is accepted).",
+            "description": "Asset symbol: BTC, ETH, SOL, BNB, XRP, DOGE, HYPE, ZEC or ENA (case-insensitive; a\n`USDT` suffix is accepted).",
             "type": "string"
           }
         },
@@ -1629,7 +1673,7 @@
             ]
           },
           "symbol": {
-            "description": "Asset symbol: BTC, ETH, SOL, BNB, XRP, DOGE or HYPE (case-insensitive; a\n`USDT` suffix is accepted).",
+            "description": "Asset symbol: BTC, ETH, SOL, BNB, XRP, DOGE, HYPE, ZEC or ENA (case-insensitive; a\n`USDT` suffix is accepted).",
             "type": "string"
           },
           "to": {
