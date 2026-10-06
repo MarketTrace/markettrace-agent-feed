@@ -1,6 +1,6 @@
 {
-  "version": "1.8.0",
-  "generated_at": "2026-10-06T08:07:00Z",
+  "version": "1.9.0",
+  "generated_at": "2026-10-06T00:00:00Z",
   "tools": [
     {
       "name": "get_big_trades",
@@ -1305,7 +1305,7 @@
     },
     {
       "name": "get_market_state",
-      "description": "Single normalized perpetual-futures microstructure snapshot for one crypto symbol, aggregated across Binance, Bybit, OKX and Hyperliquid. Answers: \"What's the market state for BTC?\", \"Is ETH positioning stretched?\". Covers BTC, ETH, SOL, BNB, XRP, DOGE, HYPE, ZEC, ENA. Returns funding+2y-percentile, OI, volume, CVD aggression, order-book imbalance, recent liquidation pressure, basis, and key drivers. Scales: *_ratio fields are 0..1, percentiles are 0-100, rel.* are multipliers of the trailing median (1.4 = 140%), obi.skew is -1..+1 (positive = bid-heavy), cvd.delta_usd positive = net taker buying, basis_bps positive = perp above spot index. Every metric carries a coverage entry (venues, window depth, partial reason) — weight confidence by it. Read-only, ~30s fresh. Use first for market context; for the historical base rate of a condition you observe here (e.g. funding percentile ≥ 90), follow with get_conditional_outcomes. For volume-profile levels (POC, value area, naked POCs) use get_volume_profile; for large aggressive orders use get_big_trades. For absorbed or pulled order-book walls use get_footprint_events.",
+      "description": "Single normalized perpetual-futures microstructure snapshot for one crypto symbol, aggregated across Binance, Bybit, OKX and Hyperliquid. Answers: \"What's the market state for BTC?\", \"Is ETH positioning stretched?\". Covers BTC, ETH, SOL, BNB, XRP, DOGE, HYPE, ZEC, ENA. Returns funding+2y-percentile, OI, volume, CVD aggression, order-book imbalance, recent liquidation pressure, basis, and key drivers. Scales: *_ratio fields are 0..1, percentiles are 0-100, rel.* are multipliers of the trailing median (1.4 = 140%), obi.skew is -1..+1 (positive = bid-heavy), cvd.delta_usd positive = net taker buying, basis_bps positive = perp above spot index. Every metric carries a coverage entry (venues, window depth, partial reason) — weight confidence by it. Read-only, ~30s fresh. Use first for market context; for the historical base rate of a condition you observe here (e.g. funding percentile ≥ 90), follow with get_conditional_outcomes. For volume-profile levels (POC, value area, naked POCs) use get_volume_profile; for large aggressive orders use get_big_trades. For absorbed or pulled order-book walls use get_footprint_events. For stacked buy or sell imbalances in the footprint use get_stacked_imbalances.",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
@@ -2209,6 +2209,305 @@
       },
       "annotations": {
         "title": "OHLCV candles (cross-exchange)",
+        "readOnlyHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "get_stacked_imbalances",
+      "description": "Stacked imbalances in the footprint of a symbol, computed on the consolidated trade tape of Binance, Bybit, OKX and Hyperliquid. Answers: \"Any stacked buying imbalance on BTC in the last hour?\", \"Where did aggressive selling stack up this morning?\", \"Which price bands saw one-sided market orders?\". Rule (diagonal, the same as the MarketTrace footprint chart): each candle is split into price rows `bucket` wide; rows with no trades are skipped, so a row's neighbour is the nearest traded row above or below. A row is a buy imbalance when its taker-buy volume is at least ratio × the taker-sell volume of the nearest traded row below it, and a sell imbalance when its taker-sell volume is at least ratio × the taker-buy volume of the nearest traded row above it; a zero opposite side counts, zero against zero does not. A row counts only if its total volume is at least 10% of the candle's largest row. A stacked imbalance = 3 or more consecutive traded rows flagged on the same side within one candle; a row can sit in a buy run and a sell run at once. ratio = 2, 3 or 4 (default 3). interval = 1m, 5m, 15m or 1h candles (default 1m). Per event: t = candle open, epoch ms; kind = buy (aggressive buying) or sell (aggressive selling); low/high = USD band from the lower edge of the run's lowest row to the upper edge of its highest row (it may include untraded rows); rows = flagged rows in the run; usd = dominant-side volume of the run × row price, whole dollars; partial = true while the candle is still forming or closed less than 3 minutes ago (the tape may still add trades). candles = candles with trades in the window. counts = runs per kind in the whole window; events lists at most limit of them (1..=150, default 50): when there are more, the LARGEST by usd are kept and truncated=true; the list is ordered by time. kinds = buy and/or sell (default both). On BTC at ratio 3 a typical hour has about 38 runs on 1m candles, 13 on 5m, 4 on 15m and 1 on 1h. Window: from/to as RFC3339, YYYY-MM-DD or epoch ms; default the last hour; a candle is included when its open lies in [from, to); at most 12 h per call and from no older than 31 days, beyond either is an error, not a clamp. Rows are never merged: when zoomed out the chart merges rows and outlines fewer, wider runs, so it matches this output only at a zoom where each row is one bucket. coverage.venues lists the venues with tape in the window; an empty list means no tape there (ZEC and ENA keep a 14-day tape). Descriptive: an imbalance states where aggressive volume was one-sided, not what price will do. Read-only.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "from": {
+            "description": "Window start: RFC3339, `YYYY-MM-DD` (UTC midnight) or epoch ms.\nDefault: `to` minus one hour. No older than 31 days.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "interval": {
+            "description": "Candle interval: 1m, 5m, 15m or 1h (default 1m).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kinds": {
+            "description": "Sides to return: `buy` and/or `sell` (default both).",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "limit": {
+            "description": "Runs listed, 1..=150 (default 50); the largest by usd are kept.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "ratio": {
+            "description": "Dominance ratio: 2, 3 or 4 (default 3).\n\nRead as any JSON value and checked in [`stacked_imbalances_query`], so\n2.5 or \"3\" is an invalid_params NAMING the parameter (a typed `u32`\nwould fail inside rmcp's deserializer with no field name). The schema\nsays integer.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "symbol": {
+            "description": "Asset symbol: BTC, ETH, SOL, BNB, XRP, DOGE, HYPE, ZEC or ENA (case-insensitive; a\n`USDT` suffix is accepted).",
+            "type": "string"
+          },
+          "to": {
+            "description": "Window end (exclusive), same formats. Default: now. At most 12 h after `from`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "symbol"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "$defs": {
+          "CoverageEntry": {
+            "description": "Availability of a single metric group. `partial=false` + no `reason` means full data.",
+            "properties": {
+              "n_samples": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "partial": {
+                "type": "boolean"
+              },
+              "reason": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CoverageReason"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "venues": {
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "window_days": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "partial"
+            ],
+            "type": "object"
+          },
+          "CoverageReason": {
+            "description": "Why a metric's `coverage` is `partial`. Absent/`null` when the metric is full.",
+            "oneOf": [
+              {
+                "const": "accruing",
+                "description": "Compute exists (or will) but the trailing window is still filling.",
+                "type": "string"
+              },
+              {
+                "const": "unavailable",
+                "description": "Source or compute not deployed yet.",
+                "type": "string"
+              },
+              {
+                "const": "degraded",
+                "description": "A venue in the set is unhealthy this cycle; metric on the reduced set.",
+                "type": "string"
+              },
+              {
+                "const": "stale",
+                "description": "The live source timestamp exceeds the freshness bound.",
+                "type": "string"
+              }
+            ]
+          },
+          "ImbalanceCounts": {
+            "description": "Runs per kind in the whole window, after `kinds` and before `limit`.",
+            "properties": {
+              "buy": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "sell": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "buy",
+              "sell"
+            ],
+            "type": "object"
+          },
+          "ImbalanceKind": {
+            "description": "Which side's aggressive volume the run stacks on. Declared buy-first:\nthe response orders `buy` before `sell` at one candle.",
+            "oneOf": [
+              {
+                "const": "buy",
+                "description": "Taker-buy volume dominant (aggressive buying, the `ask` side).",
+                "type": "string"
+              },
+              {
+                "const": "sell",
+                "description": "Taker-sell volume dominant (aggressive selling, the `bid` side).",
+                "type": "string"
+              }
+            ]
+          },
+          "StackedImbalance": {
+            "description": "One stacked imbalance: a run of 3+ consecutive traded rows of one candle\nflagged on the same side.",
+            "properties": {
+              "high": {
+                "description": "Upper edge of the run's highest row, USD (bucket decimals). The band\nmay include untraded rows, so `(high − low) / bucket` can exceed `rows`.",
+                "format": "double",
+                "type": "number"
+              },
+              "kind": {
+                "$ref": "#/$defs/ImbalanceKind"
+              },
+              "low": {
+                "description": "Lower edge of the run's lowest row, USD (bucket decimals).",
+                "format": "double",
+                "type": "number"
+              },
+              "partial": {
+                "description": "`true` while the candle is still forming or closed less than 3\nminutes ago (the tape may still add trades).",
+                "type": "boolean"
+              },
+              "rows": {
+                "description": "Flagged rows in the run.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "t": {
+                "description": "Candle open, epoch ms.",
+                "format": "int64",
+                "type": "integer"
+              },
+              "usd": {
+                "description": "Σ dominant-side volume × row price (lower edge) over the run, whole USD.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "t",
+              "kind",
+              "low",
+              "high",
+              "rows",
+              "usd",
+              "partial"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "bucket": {
+            "description": "Price-row width of the symbol, USD (rows are never merged).",
+            "format": "double",
+            "type": "number"
+          },
+          "candles": {
+            "description": "Candles of the window with trades.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "counts": {
+            "$ref": "#/$defs/ImbalanceCounts"
+          },
+          "coverage": {
+            "$ref": "#/$defs/CoverageEntry",
+            "description": "`venues` = venues with at least one footprint cell in the window\n(empty = no tape there)."
+          },
+          "events": {
+            "description": "At most `limit` runs — the largest by `usd` — ordered by `t`, then\n`kind` (buy first), then `low`.",
+            "items": {
+              "$ref": "#/$defs/StackedImbalance"
+            },
+            "type": "array"
+          },
+          "from": {
+            "description": "Window start as given (inclusive), RFC3339 UTC.",
+            "type": "string"
+          },
+          "interval": {
+            "description": "Candle length: `1m`, `5m`, `15m` or `1h`.",
+            "type": "string"
+          },
+          "ratio": {
+            "description": "Dominance ratio used: 2, 3 or 4.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "symbol": {
+            "description": "Uppercase asset symbol, e.g. `BTC`.",
+            "type": "string"
+          },
+          "to": {
+            "description": "Window end as given (exclusive), RFC3339 UTC.",
+            "type": "string"
+          },
+          "truncated": {
+            "description": "`true` when the window held more runs than `limit`.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "symbol",
+          "from",
+          "to",
+          "interval",
+          "ratio",
+          "bucket",
+          "candles",
+          "counts",
+          "events",
+          "truncated",
+          "coverage"
+        ],
+        "type": "object"
+      },
+      "annotations": {
+        "title": "Stacked imbalances (footprint)",
         "readOnlyHint": true,
         "openWorldHint": false
       }

@@ -30,8 +30,9 @@ Hyperliquid**:
 | `get_volume_profile` | Volume-profile levels per UTC day from the consolidated tape: POC, value area high/low, value-area width and its rank, a multi-day composite and naked POCs. *"Is price inside yesterday's value area?"* |
 | `get_big_trades` | Large aggressive orders (fills sharing venue, side and timestamp summed into one trade): per-side totals plus the biggest prints with venue, price and USD size. *"Were the whale market orders buying or selling?"* |
 | `get_footprint_events` | Order-book wall events from the 1-minute footprint: absorbed and pulled walls with peak, executed and closing size in USD, plus thin-book minutes. *"Were bid walls pulled before this drop?"* |
+| `get_stacked_imbalances` | Stacked footprint imbalances from the consolidated tape: diagonal buy and sell runs per candle (1m…1h) with price band and USD size. *"Where did aggressive buyers stack up on BTC this morning?"* |
 
-**Data:** funding rates, open interest, cumulative volume delta (CVD), order-book depth, liquidations, OHLCV candles with per-candle delta, volume-profile levels, large aggressive orders, order-book wall events.
+**Data:** funding rates, open interest, cumulative volume delta (CVD), order-book depth, liquidations, OHLCV candles with per-candle delta, volume-profile levels, large aggressive orders, order-book wall events, stacked footprint imbalances.
 
 **Honesty model:** every metric carries a `coverage` entry (venues, window
 depth, freshness); thin history answers with disclosed depth instead of

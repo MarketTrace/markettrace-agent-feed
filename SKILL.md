@@ -31,7 +31,9 @@ interpretation is yours.
    `get_big_trades` lists the large aggressive orders and per-side totals for
    a window (at most 12 h per call); `get_footprint_events` lists absorbed or
    pulled order-book walls and thin-book minutes (at most 24 h per call; the
-   event archive starts 2026-10-03, earlier windows are honestly empty).
+   event archive starts 2026-10-03, earlier windows are honestly empty);
+   `get_stacked_imbalances` lists stacked diagonal buy/sell imbalance runs per
+   candle (1m…1h, ratio 2/3/4; the same rule as the MarketTrace footprint chart).
 
 ## Scales (read them literally)
 
