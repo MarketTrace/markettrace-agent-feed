@@ -44,10 +44,33 @@ floor; every response self-declares its age. Reports history, not predictions.
 **Claude (web/desktop):** Settings → Connectors → *Add custom connector* →
 `https://api.markettrace.ai/mcp` → authorize (email magic link).
 
-**Claude Code:**
+Every client signs in the same way: it opens a browser, you enter your
+email, and a sign-in link arrives. Open it on the same device and in the
+same browser where you started.
+
+**Claude Code** (adding the server does not sign you in, so run both):
 
 ```bash
 claude mcp add --transport http markettrace https://api.markettrace.ai/mcp
+claude mcp login markettrace
+```
+
+**Codex:**
+
+```bash
+codex mcp add markettrace --url https://api.markettrace.ai/mcp
+codex mcp login markettrace
+```
+
+**Cursor:** add this to `~/.cursor/mcp.json` (or use *Add to Cursor* on
+https://markettrace.ai/agents) and sign in when Cursor asks:
+
+```json
+{
+  "mcpServers": {
+    "markettrace": { "url": "https://api.markettrace.ai/mcp" }
+  }
+}
 ```
 
 **Stdio-only clients** (via the standard OAuth-capable bridge):
