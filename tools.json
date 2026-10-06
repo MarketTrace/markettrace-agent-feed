@@ -1,7 +1,283 @@
 {
-  "version": "1.6.0",
-  "generated_at": "2026-09-27T07:20:00Z",
+  "version": "1.8.0",
+  "generated_at": "2026-10-06T08:07:00Z",
   "tools": [
+    {
+      "name": "get_big_trades",
+      "description": "Large aggressive orders (\"big trades\") from the trade tape of Binance, Bybit, OKX and Hyperliquid for a symbol. Answers: \"Any whale market orders on BTC in the last hour?\", \"Were the big prints buying or selling?\", \"Which venue took the largest hit?\". One big trade = all fills that share venue, taker side and exchange timestamp: a market order sweeping several price levels prints as many fills at one instant, and they are summed back into one trade. aggressor: buy = the taker bought, sell = the taker sold. Per trade: t = exchange timestamp, epoch ms; venue; price = volume-weighted fill price, USD; usd = notional, whole dollars. min_usd = smallest notional that counts, at least 50000; default = the asset's threshold on the MarketTrace chart (BTC and ETH 1000000; SOL, BNB, XRP, DOGE and HYPE 500000; ZEC and ENA 100000); the response echoes the value used. totals = count (n) and summed usd of every trade at or above min_usd in the window, per side. trades = at most limit of them (1..=150, default 50): when there are more, the LARGEST are kept and truncated=true; the list is ordered by time. Window: from/to as RFC3339, YYYY-MM-DD or epoch ms; default the last hour; at most 12 h per call and from no older than 31 days, beyond either is an error, not a clamp. settled=false means the window reaches into the last 3 minutes, which the tape may not hold in full yet. coverage.venues lists the venues with tape in the window; an empty list means no tape there, not no trades (ZEC and ENA keep a 14-day tape). An order the trader split into separate child orders shows up as separate smaller trades. Descriptive: a big trade is executed flow, not a signal. Read-only.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "from": {
+            "description": "Window start: RFC3339, `YYYY-MM-DD` (UTC midnight) or epoch ms.\nDefault: `to` minus one hour. No older than 31 days.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "description": "Trades listed, 1..=150 (default 50); the largest are kept.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "min_usd": {
+            "description": "Smallest notional that counts, whole USD, at least 50000. Default:\nthe asset's chart threshold (echoed in the response).\n\nRead as any JSON value and checked in [`big_trades_query`], so a\nfractional, negative or non-numeric value is an invalid_params NAMING\nthe parameter (a typed `u64` would fail inside rmcp's deserializer with\nserde's \"expected u64\" and no field name). The schema says integer.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "symbol": {
+            "description": "Asset symbol: BTC, ETH, SOL, BNB, XRP, DOGE, HYPE, ZEC or ENA (case-insensitive; a\n`USDT` suffix is accepted).",
+            "type": "string"
+          },
+          "to": {
+            "description": "Window end (exclusive), same formats. Default: now. At most 12 h after `from`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "symbol"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "$defs": {
+          "Aggressor": {
+            "description": "Which side the taker (the aggressive order) was on. Tape convention:\n`ask` fills = the taker bought, `bid` fills = the taker sold.",
+            "oneOf": [
+              {
+                "const": "buy",
+                "description": "The taker bought (lifted asks).",
+                "type": "string"
+              },
+              {
+                "const": "sell",
+                "description": "The taker sold (hit bids).",
+                "type": "string"
+              }
+            ]
+          },
+          "BigTrade": {
+            "description": "One big trade: all fills of one venue sharing taker side and exchange timestamp.",
+            "properties": {
+              "aggressor": {
+                "$ref": "#/$defs/Aggressor"
+              },
+              "price": {
+                "description": "Volume-weighted fill price, USD (8 significant figures).",
+                "format": "double",
+                "type": "number"
+              },
+              "t": {
+                "description": "Exchange timestamp (`event_ts`), epoch ms.",
+                "format": "int64",
+                "type": "integer"
+              },
+              "usd": {
+                "description": "Notional Σ price × qty, whole USD.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "venue": {
+                "description": "`binance`, `bybit`, `okx` or `hyperliquid`.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "t",
+              "venue",
+              "aggressor",
+              "price",
+              "usd"
+            ],
+            "type": "object"
+          },
+          "BigTradeTotals": {
+            "description": "Per-side totals over EVERY big trade of the window (not only the listed ones).",
+            "properties": {
+              "buy": {
+                "$ref": "#/$defs/SideTotal",
+                "description": "Taker bought."
+              },
+              "sell": {
+                "$ref": "#/$defs/SideTotal",
+                "description": "Taker sold."
+              }
+            },
+            "required": [
+              "buy",
+              "sell"
+            ],
+            "type": "object"
+          },
+          "CoverageEntry": {
+            "description": "Availability of a single metric group. `partial=false` + no `reason` means full data.",
+            "properties": {
+              "n_samples": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "partial": {
+                "type": "boolean"
+              },
+              "reason": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CoverageReason"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "venues": {
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "window_days": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "partial"
+            ],
+            "type": "object"
+          },
+          "CoverageReason": {
+            "description": "Why a metric's `coverage` is `partial`. Absent/`null` when the metric is full.",
+            "oneOf": [
+              {
+                "const": "accruing",
+                "description": "Compute exists (or will) but the trailing window is still filling.",
+                "type": "string"
+              },
+              {
+                "const": "unavailable",
+                "description": "Source or compute not deployed yet.",
+                "type": "string"
+              },
+              {
+                "const": "degraded",
+                "description": "A venue in the set is unhealthy this cycle; metric on the reduced set.",
+                "type": "string"
+              },
+              {
+                "const": "stale",
+                "description": "The live source timestamp exceeds the freshness bound.",
+                "type": "string"
+              }
+            ]
+          },
+          "SideTotal": {
+            "description": "Count and summed notional of one taker side.",
+            "properties": {
+              "n": {
+                "description": "Big trades on this side in the window.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "usd": {
+                "description": "Their summed notional, whole USD.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "n",
+              "usd"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "coverage": {
+            "$ref": "#/$defs/CoverageEntry",
+            "description": "`venues` = venues whose tape holds at least one print inside the\nwindow (empty = no tape there, not no trades)."
+          },
+          "from": {
+            "description": "Window start (inclusive), RFC3339 UTC.",
+            "type": "string"
+          },
+          "min_usd": {
+            "description": "Smallest notional that counts, whole USD — the value actually used.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "settled": {
+            "description": "`false` while the window reaches into the last 3 minutes, which the\ntape may not hold in full yet.",
+            "type": "boolean"
+          },
+          "symbol": {
+            "description": "Uppercase asset symbol, e.g. `BTC`.",
+            "type": "string"
+          },
+          "to": {
+            "description": "Window end (exclusive), RFC3339 UTC.",
+            "type": "string"
+          },
+          "totals": {
+            "$ref": "#/$defs/BigTradeTotals"
+          },
+          "trades": {
+            "description": "At most `limit` trades — the largest by `usd` — ordered by `t`, then\n`venue`, then `aggressor`.",
+            "items": {
+              "$ref": "#/$defs/BigTrade"
+            },
+            "type": "array"
+          },
+          "truncated": {
+            "description": "`true` when the window held more big trades than `limit`.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "symbol",
+          "from",
+          "to",
+          "min_usd",
+          "totals",
+          "trades",
+          "truncated",
+          "settled",
+          "coverage"
+        ],
+        "type": "object"
+      },
+      "annotations": {
+        "title": "Big trades (large aggressive orders)",
+        "readOnlyHint": true,
+        "openWorldHint": false
+      }
+    },
     {
       "name": "get_conditional_outcomes",
       "description": "Measured HISTORY of forward returns after a stated condition — the base rate from this feed's own data, replacing folklore like \"high funding = squeeze\". Answers: \"What happened historically after funding above the 90th percentile?\", \"When OBI stayed bid-heavy while funding was positive, what did the next 24h look like?\". Condition fields AND together (state at least one). Funding (multi-year series): funding_pct_gte/lte (AS-OF percentile 0..100 — the rank the live endpoint showed at that moment, no look-ahead), streak_h_gte (hours funding kept its sign), funding_sign (positive|negative). Archive (v2, 15-min state archive — YOUNG series, growing daily): archive_feature ∈ obi_skew (−1..+1) | oi_chg_1h_pct (%) | taker_buy_ratio (0..1) | basis_bps, with archive_gte/lte (raw value, no sample floor) and archive_pct_gte/lte (as-of percentile). An archive condition shrinks the match window to the INTERSECTION of the series' spans — the response window and coverage.archive.{window_days,n_samples} disclose exactly how thin the evidence is; weight accordingly. horizons: [\"4h\",\"24h\",\"72h\"] default, each 1h..168h. Per horizon: n_matches (raw), n_effective (overlap-collapsed — overlapping forward windows are NOT independent samples; all stats use the collapsed set), median/p10/p90 forward return in PERCENT, hit_rate_up (RATIO 0..1), max_dd_median_pct (median worst drawdown before the horizon resolves, ≤0). verdict=history_silent means the condition matched too rarely to measure (n_effective<12 on every horizon): a first-class answer — you are trading on belief, size accordingly; stats are null, never noise. warnings flag overlap collapse, 14-day clustering and silenced horizons. matches_sample = up to 50 audit timestamps. current = where the LAST hour of the same series sits on the condition axes (funding_pct as-of percentile, null below the floor; streak_h; sign) — read the band it falls in, then ask about that band; null only when there is no funding series. Percentile-form conditions exist only once the ranked series has coverage.warmup_samples (12) points — a STRUCTURAL floor (a rank among 2 points is degenerate), not a maturity gate; nothing time-based is withheld. Prices: Binance 1h closes (coverage.price_src). REPORTS HISTORY, NOT PREDICTIONS — past conditional distributions do not imply future returns. Read-only.",
@@ -490,6 +766,291 @@
       }
     },
     {
+      "name": "get_footprint_events",
+      "description": "Order-book wall events from the 1-minute footprint of a symbol, built on the consolidated book and trade tape of Binance, Bybit, OKX and Hyperliquid. Answers: \"Did a large resting order get absorbed on BTC in the last hour?\", \"Were bid walls pulled before this drop?\", \"How thin was the book this hour?\". A wall = a resting price row far larger than the book's typical row (above median + 5 MAD of row sizes). kind=absorbed: trades hit the wall for at least 5% of its peak size, it still held at least 85% of that peak at the minute's close, and price did not break through it. kind=pulled: the wall fell below half of its peak while trades covered less than 30% of the drop, it did not refill within 2 seconds, and price had come within reach of it (cancelled, not filled). Scope: only price rows that traded in that minute and lie within the nearest 60 rows per side of mid are examined, so distant or untouched walls are not reported. wall_side: bid = resting buy orders, ask = resting sell orders. Per event: t = minute open, epoch ms; price = USD, lower edge of a `bucket`-wide row; peak_usd = largest resting size seen in the minute; executed_usd = volume traded against the wall; close_usd = resting size at the minute's close (whole dollars). At most 4 events of each kind are kept per minute, the largest peaks. thin_minutes = minutes whose resting depth near mid (within 25 bps, capped at the nearest 60 rows per side) was below the 20th percentile of the previous 2 hours, per side (bid, ask, both); classified = minutes of the window classified so far (the newest 2-3 minutes are still pending). Window: from/to as RFC3339, YYYY-MM-DD or epoch ms; default the last hour; at most 24 h per call, longer is an error, not a clamp. kinds = absorbed and/or pulled (default both); min_usd filters by peak_usd; limit 1..=150 (default 50) keeps the NEWEST events, counts cover the whole window and truncated=true says the list was cut. coverage.archive_from is when recording began; the archive only grows forward, so a window before it is honestly empty. Descriptive: an event states what the book did, not what price will do. Read-only.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "from": {
+            "description": "Window start: RFC3339 (`2026-10-12T09:10:00Z`), `YYYY-MM-DD` (UTC\nmidnight) or epoch milliseconds. Default: `to` minus one hour.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kinds": {
+            "description": "Event kinds to return: `absorbed` and/or `pulled` (default both).",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "limit": {
+            "description": "Events returned, 1..=150 (default 50). When the window holds more, the\nNEWEST are kept and `truncated` is true; `counts` still cover the window.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "min_usd": {
+            "description": "Smallest `peak_usd` that counts, USD, >= 0 (default 0 = every event).",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "symbol": {
+            "description": "Asset symbol: BTC, ETH, SOL, BNB, XRP, DOGE, HYPE, ZEC or ENA (case-insensitive; a\n`USDT` suffix is accepted).",
+            "type": "string"
+          },
+          "to": {
+            "description": "Window end (exclusive), same formats. Default: now. At most 24 h after\n`from` — longer is an error, not a clamp.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "symbol"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "$defs": {
+          "EventCounts": {
+            "description": "Events per kind in the whole window, after the `kinds` and `min_usd`\nfilters and before `limit`.",
+            "properties": {
+              "absorbed": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "pulled": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "absorbed",
+              "pulled"
+            ],
+            "type": "object"
+          },
+          "EventKind": {
+            "description": "What the book did at the wall during the minute.",
+            "oneOf": [
+              {
+                "const": "absorbed",
+                "description": "Trades executed against the wall and it still stood at the minute's\nclose; price did not break through it.",
+                "type": "string"
+              },
+              {
+                "const": "pulled",
+                "description": "The wall shrank without trades accounting for the drop and did not\nrefill (cancelled, not filled).",
+                "type": "string"
+              }
+            ]
+          },
+          "FootprintEvent": {
+            "description": "One wall event: one price row of one 1-minute candle.",
+            "properties": {
+              "close_usd": {
+                "description": "Resting size at the minute's close × price, whole USD.",
+                "format": "int64",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "executed_usd": {
+                "description": "Volume traded against the wall during the minute × price, whole USD.",
+                "format": "int64",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "kind": {
+                "$ref": "#/$defs/EventKind"
+              },
+              "peak_usd": {
+                "description": "Largest resting size seen at the row during the minute × price, whole USD.",
+                "format": "int64",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "price": {
+                "description": "Lower edge of the `bucket`-wide price row, USD.",
+                "format": "double",
+                "type": "number"
+              },
+              "t": {
+                "description": "Minute open, epoch ms.",
+                "format": "int64",
+                "type": "integer"
+              },
+              "wall_side": {
+                "$ref": "#/$defs/WallSide"
+              }
+            },
+            "required": [
+              "t",
+              "kind",
+              "wall_side",
+              "price"
+            ],
+            "type": "object"
+          },
+          "FootprintEventsCoverage": {
+            "description": "Provenance of the archive behind the answer.",
+            "properties": {
+              "archive_from": {
+                "description": "Earliest classified minute in this symbol's archive, RFC3339 UTC — when\nrecording began. `null` while the archive holds no classified minute.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "partial": {
+                "description": "`true` when the archive is empty or the window starts before\n`archive_from`.",
+                "type": "boolean"
+              },
+              "venues": {
+                "description": "Venues whose book and trades feed the footprint.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "partial",
+              "venues"
+            ],
+            "type": "object"
+          },
+          "ThinMinutes": {
+            "description": "Minutes of the window by thin-book side, plus how many were classified.",
+            "properties": {
+              "ask": {
+                "description": "Minutes when only the ask side near mid was thin.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "bid": {
+                "description": "Minutes when only the bid side near mid was thin.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "both": {
+                "description": "Minutes when both sides near mid were thin.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "classified": {
+                "description": "Minutes of the window the classifier has recorded so far.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "bid",
+              "ask",
+              "both",
+              "classified"
+            ],
+            "type": "object"
+          },
+          "WallSide": {
+            "description": "Side of the book the wall rested on.",
+            "oneOf": [
+              {
+                "const": "bid",
+                "description": "Resting buy orders.",
+                "type": "string"
+              },
+              {
+                "const": "ask",
+                "description": "Resting sell orders.",
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "bucket": {
+            "description": "Price-row width of the symbol, USD.",
+            "format": "double",
+            "type": "number"
+          },
+          "counts": {
+            "$ref": "#/$defs/EventCounts"
+          },
+          "coverage": {
+            "$ref": "#/$defs/FootprintEventsCoverage"
+          },
+          "events": {
+            "description": "Ordered by `t`, then `kind`, then `price`; at most `limit`, the newest.",
+            "items": {
+              "$ref": "#/$defs/FootprintEvent"
+            },
+            "type": "array"
+          },
+          "from": {
+            "description": "Window start (inclusive, on the minute open), RFC3339 UTC.",
+            "type": "string"
+          },
+          "symbol": {
+            "description": "Uppercase asset symbol, e.g. `BTC`.",
+            "type": "string"
+          },
+          "thin_minutes": {
+            "$ref": "#/$defs/ThinMinutes"
+          },
+          "to": {
+            "description": "Window end (exclusive), RFC3339 UTC.",
+            "type": "string"
+          },
+          "truncated": {
+            "description": "`true` when the window held more events than `limit`.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "symbol",
+          "from",
+          "to",
+          "bucket",
+          "counts",
+          "thin_minutes",
+          "events",
+          "truncated",
+          "coverage"
+        ],
+        "type": "object"
+      },
+      "annotations": {
+        "title": "Footprint events (order-book walls)",
+        "readOnlyHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "get_funding_percentile",
       "description": "Current perpetual funding rate for a symbol, ranked vs its own multi-year history as a percentile (0-100). Answers: \"Is BTC funding unusually high?\", \"What percentile is ETH funding at?\". Returns rate_bps (basis points, 8h-normalized, cross-venue; positive = longs pay shorts), percentile (0-100), streak_h (hours the rate has kept its sign), and the coverage (venues + history depth backing the rank). Read-only.",
       "inputSchema": {
@@ -744,7 +1305,7 @@
     },
     {
       "name": "get_market_state",
-      "description": "Single normalized perpetual-futures microstructure snapshot for one crypto symbol, aggregated across Binance, Bybit, OKX and Hyperliquid. Answers: \"What's the market state for BTC?\", \"Is ETH positioning stretched?\". Covers BTC, ETH, SOL, BNB, XRP, DOGE, HYPE, ZEC, ENA. Returns funding+2y-percentile, OI, volume, CVD aggression, order-book imbalance, recent liquidation pressure, basis, and key drivers. Scales: *_ratio fields are 0..1, percentiles are 0-100, rel.* are multipliers of the trailing median (1.4 = 140%), obi.skew is -1..+1 (positive = bid-heavy), cvd.delta_usd positive = net taker buying, basis_bps positive = perp above spot index. Every metric carries a coverage entry (venues, window depth, partial reason) — weight confidence by it. Read-only, ~30s fresh. Use first for market context; for the historical base rate of a condition you observe here (e.g. funding percentile ≥ 90), follow with get_conditional_outcomes.",
+      "description": "Single normalized perpetual-futures microstructure snapshot for one crypto symbol, aggregated across Binance, Bybit, OKX and Hyperliquid. Answers: \"What's the market state for BTC?\", \"Is ETH positioning stretched?\". Covers BTC, ETH, SOL, BNB, XRP, DOGE, HYPE, ZEC, ENA. Returns funding+2y-percentile, OI, volume, CVD aggression, order-book imbalance, recent liquidation pressure, basis, and key drivers. Scales: *_ratio fields are 0..1, percentiles are 0-100, rel.* are multipliers of the trailing median (1.4 = 140%), obi.skew is -1..+1 (positive = bid-heavy), cvd.delta_usd positive = net taker buying, basis_bps positive = perp above spot index. Every metric carries a coverage entry (venues, window depth, partial reason) — weight confidence by it. Read-only, ~30s fresh. Use first for market context; for the historical base rate of a condition you observe here (e.g. funding percentile ≥ 90), follow with get_conditional_outcomes. For volume-profile levels (POC, value area, naked POCs) use get_volume_profile; for large aggressive orders use get_big_trades. For absorbed or pulled order-book walls use get_footprint_events.",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
@@ -1527,7 +2088,7 @@
     },
     {
       "name": "get_ohlcv",
-      "description": "Consolidated cross-exchange OHLCV candles for a symbol (all four venues' trades merged onto one timeline). Answers: \"Show me BTC 1h candles\", \"What's the 24h range?\". Use for stop placement, position sizing (ATR), R:R and realized-volatility math — the exact-candle complement to get_market_state's approximate price block. Intervals: 5m, 15m, 1h, 4h, 1d (default 1h); limit 1..=200 candles (default 100), oldest first. The consolidated tape holds 31 days, so limit × interval must fit inside it: 1d ≤ 31, 4h ≤ 186, 1h and finer reach the full 200 — beyond that is an error, not a clamp. ZEC and ENA keep a 14-day tape that started filling when they were added, so their longer windows return fewer candles than asked — count what comes back. The NEWEST candle may be partial:true (bucket still forming) — exclude it from ATR/RV math. Fields: t = bucket open epoch ms, o/h/l/c = USD, v = traded volume in BASE units (BTC, ETH, ...), NOT USD — multiply by price for approximate notional. Read-only.",
+      "description": "Consolidated cross-exchange OHLCV candles for a symbol (all four venues' trades merged onto one timeline). Answers: \"Show me BTC 1h candles\", \"What's the 24h range?\". Use for stop placement, position sizing (ATR), R:R and realized-volatility math — the exact-candle complement to get_market_state's approximate price block. Intervals: 5m, 15m, 1h, 4h, 1d (default 1h); limit 1..=200 candles (default 100), oldest first. The consolidated tape holds 31 days, so limit × interval must fit inside it: 1d ≤ 31, 4h ≤ 186, 1h and finer reach the full 200 — beyond that is an error, not a clamp. ZEC and ENA keep a 14-day tape that started filling when they were added, so their longer windows return fewer candles than asked — count what comes back. The NEWEST candle may be partial:true (bucket still forming) — exclude it from ATR/RV math. Fields: t = bucket open epoch ms, o/h/l/c = USD, v = traded volume in BASE units (BTC, ETH, ...), NOT USD — multiply by price for approximate notional. delta = taker-buy minus taker-sell volume inside the candle, BASE units like v (positive = net aggressive buying); the running sum of delta over the returned candles is the CVD of that window. Read-only.",
       "inputSchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
@@ -1566,6 +2127,14 @@
                 "format": "double",
                 "type": "number"
               },
+              "delta": {
+                "description": "Taker-buy minus taker-sell volume in the bucket, BASE units like `v`\n(positive = net aggressive buying). `null` when the upstream candle\ncarries no `delta` — never omitted.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
               "h": {
                 "format": "double",
                 "type": "number"
@@ -1600,7 +2169,8 @@
               "h",
               "l",
               "c",
-              "v"
+              "v",
+              "delta"
             ],
             "type": "object"
           }
@@ -1795,6 +2365,443 @@
       },
       "annotations": {
         "title": "State history (15-min archive)",
+        "readOnlyHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "get_volume_profile",
+      "description": "Volume-profile reference levels for a symbol, from the consolidated trade tape of Binance, Bybit, OKX and Hyperliquid. Answers: \"Where are the key volume levels on BTC?\", \"Is price inside yesterday's value area?\", \"Any untested POCs nearby?\". Sessions are UTC days. poc = price row with the most traded volume; vah/val = top and bottom of the value area, the band around the POC that holds 70% of the session's volume. Returns today (the session still forming, developing:true, its levels still move), days (the last N complete days, days 1..=30, default 7, oldest first), composite (one profile over those days plus today) and naked_pocs (POCs of the last 30 complete days that price has not traded back to since). Per profile: poc/vah/val in USD (lower edge of a `bucket`-wide price row), va_width_pct = (vah − val) / poc × 100, volume in BASE units (BTC, ETH, ...), taker_buy_ratio 0..1 (share of volume that was aggressive buying). va_width_rank.percentile (0-100) ranks the latest complete day's va_width_pct among the last n_days complete days: low = an unusually tight day; null below 12 days. Levels only, no histogram. For where price sits against these levels read price.last from get_market_state. ZEC and ENA were added later, so fewer days come back for them: count what is returned and read coverage. Read-only.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "days": {
+            "description": "Complete UTC days to return, 1..=30 (default 7). Out of range is an\nerror, not a clamp.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "symbol": {
+            "description": "Asset symbol: BTC, ETH, SOL, BNB, XRP, DOGE, HYPE, ZEC or ENA (case-insensitive; a\n`USDT` suffix is accepted).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "$defs": {
+          "CompositeProfile": {
+            "description": "One profile over the returned complete days plus today (when present).",
+            "properties": {
+              "from": {
+                "description": "First day inside the composite, `YYYY-MM-DD` (`null` when empty).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "includes_today": {
+                "description": "Whether today's developing session is summed in.",
+                "type": "boolean"
+              },
+              "n_days": {
+                "description": "Complete days inside the composite (= `days.len()`).",
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "poc": {
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "taker_buy_ratio": {
+                "description": "0..1.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "to": {
+                "description": "Last day inside the composite (today's date when it includes today).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "va_width_pct": {
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "vah": {
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "val": {
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "volume": {
+                "description": "BASE units.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "n_days",
+              "includes_today"
+            ],
+            "type": "object"
+          },
+          "CoverageEntry": {
+            "description": "Availability of a single metric group. `partial=false` + no `reason` means full data.",
+            "properties": {
+              "n_samples": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "partial": {
+                "type": "boolean"
+              },
+              "reason": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CoverageReason"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "venues": {
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "window_days": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "partial"
+            ],
+            "type": "object"
+          },
+          "CoverageReason": {
+            "description": "Why a metric's `coverage` is `partial`. Absent/`null` when the metric is full.",
+            "oneOf": [
+              {
+                "const": "accruing",
+                "description": "Compute exists (or will) but the trailing window is still filling.",
+                "type": "string"
+              },
+              {
+                "const": "unavailable",
+                "description": "Source or compute not deployed yet.",
+                "type": "string"
+              },
+              {
+                "const": "degraded",
+                "description": "A venue in the set is unhealthy this cycle; metric on the reduced set.",
+                "type": "string"
+              },
+              {
+                "const": "stale",
+                "description": "The live source timestamp exceeds the freshness bound.",
+                "type": "string"
+              }
+            ]
+          },
+          "DayProfile": {
+            "description": "One complete UTC day.",
+            "properties": {
+              "date": {
+                "description": "UTC day, `YYYY-MM-DD`.",
+                "type": "string"
+              },
+              "poc": {
+                "description": "Point of control: the price row with the most traded volume, USD\n(lowest price on a tie).",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "taker_buy_ratio": {
+                "description": "Share of the volume that was aggressive buying (taker bought), 0..1.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "va_width_pct": {
+                "description": "`(vah − val) / poc × 100`.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "vah": {
+                "description": "Value-area high: top row of the band around the POC holding 70% of the\nday's volume, USD.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "val": {
+                "description": "Value-area low: bottom row of that band, USD.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "volume": {
+                "description": "Traded volume, BASE units (BTC, ETH, …), not USD.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "date"
+            ],
+            "type": "object"
+          },
+          "NakedPoc": {
+            "description": "A complete day's POC that no later day (today included) has traded through.",
+            "properties": {
+              "date": {
+                "description": "The day whose POC it is, `YYYY-MM-DD`.",
+                "type": "string"
+              },
+              "price": {
+                "description": "USD, lower edge of the `bucket`-wide row.",
+                "format": "double",
+                "type": "number"
+              }
+            },
+            "required": [
+              "date",
+              "price"
+            ],
+            "type": "object"
+          },
+          "TodayProfile": {
+            "description": "Today's session, still forming: its levels move until 00:00 UTC.",
+            "properties": {
+              "date": {
+                "description": "UTC day, `YYYY-MM-DD`.",
+                "type": "string"
+              },
+              "developing": {
+                "description": "Always `true`: the session is not complete.",
+                "type": "boolean"
+              },
+              "poc": {
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "taker_buy_ratio": {
+                "description": "0..1.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "va_width_pct": {
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "vah": {
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "val": {
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "volume": {
+                "description": "BASE units.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "date",
+              "developing"
+            ],
+            "type": "object"
+          },
+          "VaWidthRank": {
+            "description": "Where the latest complete day's `va_width_pct` ranks among the complete\ndays of the last 60 (itself included).",
+            "properties": {
+              "n_days": {
+                "description": "Sample size the rank was taken in.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "percentile": {
+                "description": "0-100; low = an unusually tight day. `null` below 12 days.",
+                "format": "uint8",
+                "maximum": 255,
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "n_days"
+            ],
+            "type": "object"
+          },
+          "VolumeProfileCoverage": {
+            "description": "Availability per block.",
+            "properties": {
+              "days": {
+                "$ref": "#/$defs/CoverageEntry",
+                "description": "`window_days` = complete days returned; `partial` + `accruing` when\nfewer than asked."
+              },
+              "today": {
+                "$ref": "#/$defs/CoverageEntry",
+                "description": "`partial` + `stale` when today's session could not be served."
+              }
+            },
+            "required": [
+              "days",
+              "today"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "as_of": {
+            "description": "Coverage time of today's session, RFC3339 UTC (build time when today\nis `null`).",
+            "type": "string"
+          },
+          "bucket": {
+            "description": "Price-row width, USD.",
+            "format": "double",
+            "type": "number"
+          },
+          "composite": {
+            "$ref": "#/$defs/CompositeProfile"
+          },
+          "coverage": {
+            "$ref": "#/$defs/VolumeProfileCoverage"
+          },
+          "days": {
+            "description": "The last N complete UTC days that have data, oldest first.",
+            "items": {
+              "$ref": "#/$defs/DayProfile"
+            },
+            "type": "array"
+          },
+          "naked_lookback_days": {
+            "description": "Complete days actually checked for naked POCs (≤ 30).",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "naked_pocs": {
+            "description": "Ascending by date.",
+            "items": {
+              "$ref": "#/$defs/NakedPoc"
+            },
+            "type": "array"
+          },
+          "symbol": {
+            "description": "Uppercase asset symbol, e.g. `BTC`.",
+            "type": "string"
+          },
+          "today": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/TodayProfile"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Today's developing session; `null` when it could not be served."
+          },
+          "va_width_rank": {
+            "$ref": "#/$defs/VaWidthRank"
+          }
+        },
+        "required": [
+          "symbol",
+          "as_of",
+          "bucket",
+          "days",
+          "composite",
+          "naked_pocs",
+          "naked_lookback_days",
+          "va_width_rank",
+          "coverage"
+        ],
+        "type": "object"
+      },
+      "annotations": {
+        "title": "Volume profile levels (cross-exchange)",
         "readOnlyHint": true,
         "openWorldHint": false
       }

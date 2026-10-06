@@ -24,11 +24,14 @@ Hyperliquid**:
 | `get_market_state` | One normalized snapshot: funding + its trailing 2-year percentile, OI, volume, CVD, order-book imbalance, liquidations, basis, drivers. *"Is ETH positioning stretched?"* |
 | `get_funding_percentile` | Current funding ranked against its own trailing 2-year window (0–100) + same-sign streak. |
 | `get_liquidations_recent` | Cross-exchange liquidation notional estimates for a window: USD, long/short split. |
-| `get_ohlcv` | Consolidated cross-exchange candles (5m…1d) for ATR/range/RV math. |
+| `get_ohlcv` | Consolidated cross-exchange candles (5m…1d) with per-candle delta (taker buy − taker sell), for ATR, ranges, CVD and RV math. |
 | `get_conditional_outcomes` | Measured forward-return history after a stated condition — base rates instead of folklore. *"What happened historically after funding above the 90th percentile?"* |
 | `get_state_history` | Time series of any numeric state field from the 15-minute archive — the trend view behind the snapshot. |
+| `get_volume_profile` | Volume-profile levels per UTC day from the consolidated tape: POC, value area high/low, value-area width and its rank, a multi-day composite and naked POCs. *"Is price inside yesterday's value area?"* |
+| `get_big_trades` | Large aggressive orders (fills sharing venue, side and timestamp summed into one trade): per-side totals plus the biggest prints with venue, price and USD size. *"Were the whale market orders buying or selling?"* |
+| `get_footprint_events` | Order-book wall events from the 1-minute footprint: absorbed and pulled walls with peak, executed and closing size in USD, plus thin-book minutes. *"Were bid walls pulled before this drop?"* |
 
-**Data:** funding rates, open interest, cumulative volume delta (CVD), order-book depth, liquidations, OHLCV candles.
+**Data:** funding rates, open interest, cumulative volume delta (CVD), order-book depth, liquidations, OHLCV candles with per-candle delta, volume-profile levels, large aggressive orders, order-book wall events.
 
 **Honesty model:** every metric carries a `coverage` entry (venues, window
 depth, freshness); thin history answers with disclosed depth instead of
@@ -81,6 +84,8 @@ docker build -t markettrace-bridge . && docker run -i markettrace-bridge
 - *"What happened historically after funding above the 90th percentile?"*
 - *"How did open interest build over the last 3 days?"*
 - *"How much got liquidated on ETH in the last hour — longs or shorts?"*
+- *"Where are the key volume levels on BTC — any untested POCs nearby?"*
+- *"Did a large resting order get absorbed on SOL in the last hour?"*
 
 ## Terms
 

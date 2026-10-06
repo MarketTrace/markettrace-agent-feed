@@ -24,7 +24,14 @@ interpretation is yours.
    week? Pull the time series of the exact fields you care about.
 5. **Exact price math via `get_ohlcv` / liquidation flow via
    `get_liquidations_recent`** when you need candles (ATR, ranges, realized
-   vol) or the recent long/short liquidation split.
+   vol) or the recent long/short liquidation split. Candles carry `delta`
+   (taker buy − taker sell, base units); their running sum is the window's CVD.
+6. **Levels and flow inside the move.** `get_volume_profile` gives the
+   reference levels (POC, value area, naked POCs) per UTC day;
+   `get_big_trades` lists the large aggressive orders and per-side totals for
+   a window (at most 12 h per call); `get_footprint_events` lists absorbed or
+   pulled order-book walls and thin-book minutes (at most 24 h per call; the
+   event archive starts 2026-10-03, earlier windows are honestly empty).
 
 ## Scales (read them literally)
 
@@ -36,6 +43,10 @@ interpretation is yours.
 - `obi.skew` → **−1..+1**; positive = **bid-heavy** (more resting bids).
 - `cvd.delta_usd` → positive = **net taker buying** over the window.
 - `basis_bps` → positive = **perp trading above spot** index.
+- `delta` (candles) → positive = **net taker buying**, BASE units like `v`.
+- `aggressor` (big trades) → `buy` = the taker bought, `sell` = the taker sold.
+- `wall_side` (footprint events) → `bid` = resting buy orders, `ask` = resting
+  sell orders; `*_usd` sizes are whole dollars.
 
 ## Semantics that are easy to misread
 
@@ -51,6 +62,10 @@ interpretation is yours.
 - **Depth bands beyond `visibility.visible_to_bps` are lower bounds**, not
   measurements. Don't compare a bid band vs an ask band once either side has
   outgrown its visible depth.
+- **Truncated lists keep complete counts.** `get_big_trades` keeps the
+  LARGEST trades and `get_footprint_events` the NEWEST events when a window
+  holds more than `limit`; `totals` / `counts` always cover the whole window,
+  and `truncated: true` says the list was cut.
 - **Percentile conditions need a sample floor.** An as-of percentile exists
   only once its series has `coverage.warmup_samples` points (a rank among a
   couple of points is degenerate). Raw-value conditions have no such floor.
